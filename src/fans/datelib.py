@@ -47,5 +47,9 @@ def from_ms(ms, timezone = timezone):
     return Timestamp(pd.to_datetime(datetime.datetime.fromtimestamp(ms / 1000, timezone)))
 
 
+def from_native(datetime):
+    return Timestamp(pd.to_datetime(datetime))
+
+
 def native_now(timezone = timezone):
     return datetime.datetime.now(timezone)
