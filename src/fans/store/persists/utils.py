@@ -3,8 +3,25 @@ import itertools
 import tempfile
 import contextlib
 from bisect import bisect_left
+from typing import Callable, Any
 
-from quantix.utils import keyed
+
+class keyed:
+
+    def __init__(self, items, _key: str = None, *, key: Callable[[Any], Any] = None):
+        self.items = items
+        if _key:
+            self.get_key = lambda item: item[_key]
+        elif key:
+            self.get_key = key
+        else:
+            raise ValueError('not key provided')
+
+    def __getitem__(self, i):
+        return self.get_key(self.items[i])
+
+    def __len__(self):
+        return len(self.items)
 
 
 class atomic_write:
