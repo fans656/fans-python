@@ -1,4 +1,5 @@
 import json
+import pathlib
 
 from fans.path import Path
 
@@ -8,7 +9,7 @@ def load_spec(spec):
         return make_empty_spec()
     if isinstance(spec, dict):
         return spec
-    if isinstance(spec, Path):
+    if isinstance(spec, pathlib.Path):
         return load_spec_from_file_path(spec)
     if isinstance(spec, str):
         return load_spec_from_file_path(Path(spec))
@@ -17,6 +18,8 @@ def load_spec(spec):
 
 def load_spec_from_file_path(path):
     try:
+        if not isinstance(path, Path):
+            path = Path(path)
         return path.load()
     except Exception as e:
         raise RuntimeError(f'error loading spec from {spec_path}: {e}')

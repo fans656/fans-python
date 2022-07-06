@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from fans.jober import errors
-from fans.jober.router import app
+from fans.jober.app import app
 from fans.jober.jober import Jober
 
 
@@ -12,18 +12,21 @@ def test_startup_shutdown(mocker):
     jober.start = mocker.Mock()
     jober.stop = mocker.Mock()
 
-    with TestClient(app) as client:
+    with Client() as client:
         pass
 
+    # Jober.start will be called upon app start
     jober.start.assert_called_once()
+    # Jober.stop will be called upon app shutdown
     jober.stop.assert_called_once()
+
     Jober._instance = None
 
 
-def test_show_jobs():
+def test_get_jobs():
     with Client() as client:
         # initialy no jobs
-        data = client.get('/api/job/show').json()
+        data = client.get('/api/job/jobs').json()
         assert data['jobs'] == []
 
         # make some jobs
@@ -32,23 +35,23 @@ def test_show_jobs():
         })
 
         # return the made jobs
-        data = client.get('/api/job/show').json()
+        data = client.get('/api/job/jobs').json()
         jobs = data['jobs']
         assert len(jobs) == 1
         job = jobs[0]
         assert job['name'] == 'foo'
 
 
-def test_show_job():
+def test_get_job():
     with Client() as client:
         # not existed
-        res = client.get('/api/job/show', params = {'name': 'foo'})
+        res = client.get('/api/job/info', params = {'id': 'foo'})
         assert res.status_code == 404
 
-        client.post('/api/job/make', json = {'name': 'foo'})
-        res = client.get('/api/job/show', params = {'name': 'foo'})
+        client.post('/api/job/make', json = {'id': 'foo'})
+        res = client.get('/api/job/info', params = {'id': 'foo'})
         assert res.status_code == 200
-        assert res.json()['name'] == 'foo'
+        assert res.json()['id'] == 'foo'
 
 
 def test_add_job():
@@ -63,7 +66,7 @@ def test_add_job():
 
 def test_run_job():
     with Client() as client:
-        res = client.get('/api/job/run', params = {'name': 'foo'})
+        res = client.post('/api/job/run', json = {'name': 'foo'})
         assert res.status_code == 404
 
 

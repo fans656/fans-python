@@ -20,6 +20,16 @@ def handle_exception(request: Request, exc: errors.Error):
     }, status_code = exc.status_code)
 
 
+@app.on_event('startup')
+def on_startup():
+    Jober.get_instance().start()
+
+
+@app.on_event('shutdown')
+def on_shutdown():
+    Jober.get_instance().stop()
+
+
 @app.get('/api/job/jobs')
 def api_get_jobs(latest_run: bool = True):
     """
@@ -32,6 +42,14 @@ def api_get_jobs(latest_run: bool = True):
             ) for job in Jober.get_instance().jobs
         ],
     }
+
+
+@app.get('/api/job/info')
+def api_get_info(id: str = None):
+    job = Jober.get_instance().get_job_by_id(id)
+    if not job:
+        raise errors.NotFound(f'{id} not found')
+    return job.info()
 
 
 @app.post('/api/job/run')

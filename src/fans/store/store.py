@@ -39,10 +39,12 @@ class Store:
 
     def save(self, data, hint = None, **kwargs):
         hint = normalized_hint(hint)
+        self.path.ensure_parent()
         return self._get_persist(hint).save(self.path, data, hint, **kwargs)
 
     def extend(self, data, hint = None, **kwargs):
         hint = normalized_hint(hint)
+        self.path.ensure_parent()
         return self._get_persist(hint).extend(self.path, data, hint, **kwargs)
 
     def readlines(self, convert = None):

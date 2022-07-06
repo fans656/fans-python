@@ -23,11 +23,14 @@ class Persist:
     def extend(self, path, items, hint, key = None, **kwargs):
         if not items:
             return
-        try:
-            orig_items = self.load(path, hint)
-            assert isinstance(orig_items, list)
-        except:
-            logger.exception('error loading original items while extend')
+        if path.exists():
+            try:
+                orig_items = self.load(path, hint)
+                assert isinstance(orig_items, list)
+            except:
+                logger.exception('error loading original items while extend')
+                orig_items = []
+        else:
             orig_items = []
         if key:
             items = merge_extend(orig_items, items, key = key)

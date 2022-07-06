@@ -193,6 +193,9 @@ class Job:
         path.ensure_dir()
         return path
 
+    def __repr__(self):
+        return f'Job<{self.name or self.id}>'
+
 
 def format_datetime_for_fname(dt):
     tz_str = dt.strftime('%z')[:5]

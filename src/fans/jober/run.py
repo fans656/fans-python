@@ -7,6 +7,7 @@ import select
 import asyncio
 import tempfile
 import threading
+import traceback
 import subprocess
 from typing import Iterable, Union
 
@@ -44,8 +45,8 @@ class JobRun:
                 'event': 'job_run_status_changed',
                 'id': self.id,
                 'status': self._status,
-                'job': self.job.id,
-                'next_run': self.job.next_run,
+                'job': self.job.id if self.job else None,
+                'next_run': self.job.next_run if self.job else None,
             }
             self.pubsub.publish(event)
 
@@ -110,12 +111,17 @@ class JobRun:
                 self.out_file = self.out_path.open('w+', buffering = 1)
             self.status = 'running'
             if self.job:
-                if self.job.type == 'executable':
+                job_type = self.job.type
+                if job_type == 'executable':
                     self.run_executable()
+                else:
+                    raise RuntimeError(f'unsupported job type "{job_type}" of "{self.job}"')
         except:
             self.status = 'error'
+            traceback.print_exc()
         finally:
-            self.status = 'done'
+            if self.status != 'error':
+                self.status = 'done'
             if self.out_file:
                 self.out_file.close()
             self.end = now()
@@ -128,6 +134,7 @@ class JobRun:
                     'kwargs': self.kwargs,
                     'beg': self.beg.datetime_str(),
                     'end': self.end.datetime_str() if self.end else None,
+                    'status': self.status,
                 }, indent = 2)
 
     def run_executable(self):

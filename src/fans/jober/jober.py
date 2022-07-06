@@ -8,6 +8,7 @@ from fans.logger import get_logger
 from fans.pubsub import PubSub
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from . import errors
 from .job import Job
@@ -39,7 +40,7 @@ class Jober:
         self.sched = BackgroundScheduler(
             executors = {
                 'default': {
-                    'type': 'threadpool',
+                    'class': 'apscheduler.executors.pool:ThreadPoolExecutor',
                     'max_workers': 20,
                 },
             },
@@ -58,7 +59,7 @@ class Jober:
     def jobs(self) -> List[Job]:
         return self._jobs
 
-    def run_job(self, id: str, args: str) -> RunID:
+    def run_job(self, id: str, args: str = None) -> RunID:
         job = self.get_job_by_id(id)
         if not job:
             raise errors.NotFound(f'"{id}" not found')
@@ -66,11 +67,21 @@ class Jober:
         thread = threading.Thread(target = job)
         thread.start()
 
-    def make_job(self, spec: dict) -> Job:
-        return Job(spec = spec, context = {
-            'pubsub': self.pubsub,
-            **self.context,
-        })
+    def schedule_job(self, job):
+        sched_spec = job.spec.get('sched')
+        if not sched_spec:
+            return
+        if isinstance(sched_spec, int):
+            seconds = sched_spec
+            if seconds > 0:
+                self.run_job(job.id) # first run
+            job.sched_job = self.sched.add_job(job, IntervalTrigger(seconds = seconds))
+        # TODO: other triggers
+        else:
+            logger.warning(f'unsupported sched: {repr(sched_spec)}')
+
+    def make_and_add_job(self, spec: dict):
+        self.add_job(self.make_job(spec))
 
     def add_job(self, job: Job) -> bool:
         if job.name in self._id_to_job:
@@ -79,19 +90,11 @@ class Jober:
         self._id_to_job[job.id] = job
         self.schedule_job(job)
 
-    def schedule_job(self, job):
-        sched_spec = job.spec.get('sched')
-        if not sched_spec:
-            return
-        if isinstance(sched_spec, int):
-            seconds = sched_spec
-            job.sched_job = self.sched.add_job(job, 'interval', seconds = seconds)
-        # TODO: other triggers
-        else:
-            logger.warning(f'unsupported sched: {repr(sched_spec)}')
-
-    def make_and_add_job(self, spec: dict):
-        self.add_job(self.make_job(spec))
+    def make_job(self, spec: dict) -> Job:
+        return Job(spec = spec, context = {
+            'pubsub': self.pubsub,
+            **self.context,
+        })
 
     def start(self):
         self.sched.start()
