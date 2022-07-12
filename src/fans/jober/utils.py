@@ -1,10 +1,14 @@
 import json
 import pathlib
+from typing import Optional, Union
 
 from fans.path import Path
 
 
-def load_spec(spec):
+def load_spec(spec: Optional[Union[dict, str, pathlib.Path]] = None):
+    """
+    Load specification from file/dict.
+    """
     if spec is None:
         return make_empty_spec()
     if isinstance(spec, dict):
@@ -16,13 +20,11 @@ def load_spec(spec):
     raise RuntimeError(f'invalid spec: {spec}')
 
 
-def load_spec_from_file_path(path):
+def load_spec_from_file_path(path: Union[pathlib.Path, Path]):
     try:
-        if not isinstance(path, Path):
-            path = Path(path)
-        return path.load()
+        return Path(path).load()
     except Exception as e:
-        raise RuntimeError(f'error loading spec from {spec_path}: {e}')
+        raise RuntimeError(f'error loading spec from {path}: {e}')
 
 
 def make_empty_spec():

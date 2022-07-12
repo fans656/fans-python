@@ -24,3 +24,7 @@ def test_jober(tmpdir):
         json.dump(spec, f)
     jober = Jober(Path(fpath))
     assert len(jober.jobs) == len(spec['jobs'])
+
+
+def test_class_spec():
+    pass

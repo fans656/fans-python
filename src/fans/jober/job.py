@@ -12,73 +12,65 @@ import shutil
 import ctypes
 import signal
 import select
+import pathlib
 import asyncio
 import tempfile
+import traceback
 import threading
 import subprocess
-from typing import Iterable, Union
+from typing import Iterable, Union, Callable, List
 
+from fans.fn import noop
 from fans.path import Path
 from fans.datelib import native_now, from_native
 
-from .run import JobRun
+from .run import Run
 
 
 class Job:
 
-    def __init__(self, spec: dict, context: dict = None):
-        """
-        spec: dict - specification of the job, of type {
-                'name': str?, # name of the job
-                'id': str?, # id of the job
-                'cwd': str?, # current working directory
-                'cmd': str?,
-                'module': str?,
-                'callable': (str|callable)?,
-                'args': (str|tuple)?,
-                'kwargs': (str|dict)?,
-                'env': dict,
-            }
-            different type of job will use different spec.
-
-            For command line job: {
-                'cmd': str, # specify the command to execute,
-            }
-            For Python module job: {
-                'module': Optional[str], # module name as in `python -m <module>`
-                'args': Optional[str], # command line argument as in `python -m <module> <args>`
-            }
-            For Python callable job: {
-                'callable': str|callable, # python callable or `<module>:<func>`
-                'args': (str|tuple)?,
-            }
-        context: dict - providing things like: {
-                'root_dir': str, # job's root dir path
-            }
-        """
-        self.spec = spec
-
-        self.name = spec.get('name')
-        self.id = spec.get('id') or self.name or uuid.uuid4().hex
-        self.cmd = spec.get('cmd')
-        self.module = spec.get('module')
-        self.callable = spec.get('callable')
-        self.args = self.parse_args(spec.get('args'))
-        self.kwargs = self.parse_kwargs(spec.get('kwargs'))
-        self.cwd = spec.get('cwd')
-        self.env = spec.get('env')
+    def __init__(
+            self,
+            name: str = None,
+            id: str = None,
+            cmd: str = None,
+            script: str = None,
+            module: str = None,
+            args: Union[str, List[str]] = None,
+            cwd: str = None,
+            env: Union[str, dict] = None,
+            sched: any = None,
+            # root directory to store job related data, each job will have separate directory
+            # under this root, e.g. <root_dir>/quantix.pricer/
+            root_dir: Union[str, pathlib.Path] = None,
+            on_event: Callable[[dict], None] = None,
+            context: dict = None,
+    ):
+        self.name = name
+        self.id = id or name or uuid.uuid4().hex
+        self.cmd = cmd
+        self.script = script
+        self.module = module
+        self.args = self.parse_args(args)
+        self.cwd = cwd
+        self.env = self.parse_dict(env)
+        self.sched = sched
 
         context = context or {}
         self.context = context
-        self.root_dir = self.ensure_root_dir(context.get('root_dir'))
-        self.pubsub = context.get('pubsub')
+        self.root_dir = self.ensure_root_dir(root_dir)
+        self.on_event = on_event or noop
 
         if self.cmd:
-            self.type = 'executable'
-        elif self.callable:
-            self.type = 'callable'
+            self.type = 'command'
+        elif self.script:
+            self.type = 'script'
         elif self.module:
             self.type = 'module'
+            if ' ' in self.module:
+                parts = self.module.split()
+                self.module = parts[0]
+                self.args = parts[1:]
         else:
             self.type = 'invalid'
 
@@ -87,15 +79,12 @@ class Job:
 
     def info(self, latest_run: bool = False):
         ret = {
-            **self.spec,
             'type': self.type,
             'name': self.name,
             'id': self.id,
             'cmd': self.cmd,
             'module': self.module,
-            'callable': str(self.callable),
             'args': self.args,
-            'kwargs': self.kwargs,
         }
         if latest_run:
             run = self.latest_run
@@ -107,17 +96,18 @@ class Job:
                 })
         return ret
 
-    def __call__(self, *args, **kwargs):
-        context = self.prepare_run()
-        run = JobRun.make(self, args, kwargs, context)
+    def __call__(self):
+        run = self.make_run()
         self.run_id_to_active_run[run.id] = run
         try:
             run()
+        except:
+            traceback.print_exc()
         finally:
             del self.run_id_to_active_run[run.id]
         return run
 
-    def prepare_run(self):
+    def make_run(self):
         limit_archived_runs = self.context.get('limit.archived.runs') or 0
         if limit_archived_runs:
             run_paths = list(self.root_dir.iterdir())
@@ -129,14 +119,27 @@ class Job:
         run_id = make_run_id()
         run_dir = self.root_dir / run_id
         run_dir.ensure_dir()
-        out_path = run_dir / 'out.log'
-        return {
-            'id': run_id,
-            'root_dir': self.root_dir,
-            'run_dir': run_dir,
-            'out_path': out_path,
-            'pubsub': self.pubsub,
-        }
+        return Run(
+            run_spec = {
+                'type': self.type,
+                'cmd': self.cmd,
+                'script': self.script,
+                'module': self.module,
+                'args': self.args,
+                'cwd': self.cwd,
+                'env': self.env,
+            },
+            id = run_id,
+            run_dir = run_dir,
+            on_event = self.process_event,
+        )
+
+    def process_event(self, event):
+        event.update({
+            'job': self.id,
+            'next_run': self.next_run,
+        })
+        self.on_event(event)
 
     @property
     def next_run(self):
@@ -152,7 +155,7 @@ class Job:
             if run_id in self.run_id_to_active_run:
                 yield self.run_id_to_active_run[run_id]
             else:
-                yield JobRun.from_archived(path)
+                yield Run.from_archived(path)
 
     @property
     def latest_run(self):
@@ -177,18 +180,18 @@ class Job:
             return tuple(args)
         raise RuntimeError(f'invalid args {args}')
 
-    def parse_kwargs(self, kwargs):
-        if kwargs is None:
+    def parse_dict(self, value, hint = None):
+        if value is None:
             return {}
-        if isinstance(kwargs, str):
-            return json.loads(kwargs)
-        if isinstance(kwargs, dict):
-            return kwargs
-        raise RuntimeError(f'invalid kwargs {kwargs}')
+        if isinstance(value, str):
+            return json.loads(value)
+        if isinstance(value, dict):
+            return value
+        raise RuntimeError(f'invalid {hint or "value"} {value}')
 
     def ensure_root_dir(self, path: Union[str, Path]):
         if not path:
-            path = Path(tempfile.gettempdir()) / self.id
+            path = Path(tempfile.gettempdir()) / 'fans.jober'
         path = Path(path) / self.id
         path.ensure_dir()
         return path

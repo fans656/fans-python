@@ -6,5 +6,5 @@ def test_job():
 
 
 def test_executable_job():
-    job = Job({'cmd': 'ls -lh'})
+    job = Job(cmd = 'ls -lh')
     job()

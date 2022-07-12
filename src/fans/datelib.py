@@ -9,6 +9,8 @@ timezone = pytz.timezone('Asia/Shanghai')
 
 class Timestamp:
 
+    datetime_str_fmt = '%Y-%m-%d %H:%M:%S'
+
     def __init__(self, value: pd.Timestamp):
         self.value = value
 
@@ -16,7 +18,13 @@ class Timestamp:
         return self.value.strftime('%Y-%m-%d')
 
     def datetime_str(self):
-        return self.value.strftime('%Y-%m-%d %H:%M:%S')
+        return self.value.strftime(Timestamp.datetime_str_fmt)
+
+    @staticmethod
+    def from_datetime_str(value):
+        if isinstance(value, (Timestamp, type(None))):
+            return value
+        return from_native(datetime.datetime.strptime(value, Timestamp.datetime_str_fmt).astimezone(timezone))
 
     def offset(self, *args, **kwargs):
         return Timestamp(self.value + pd.DateOffset(*args, **kwargs))

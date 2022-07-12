@@ -1,3 +1,24 @@
+"""
+If you are mounting app as a sub app, you should execute `startup/shutdown` in root app event handlers:
+
+    root_app.mount('/', app)
+
+
+    @root_app.on_event('startup')
+    def on_startup():
+        app.state.startup()
+
+
+    @root_app.on_event('shutdown')
+    def on_shutdown():
+        app.state.shutdown()
+
+You can use `app.state.setup` to assign jober spec, like:
+
+    root_app.mount('/', app.state.setup(
+        spec = '/home/fans656/.fme/jober/conf.yaml',
+    ))
+"""
 import json
 
 from fastapi import FastAPI, HTTPException, Request, Body
@@ -12,6 +33,12 @@ from .jober import Jober
 app = FastAPI()
 
 
+def setup(spec):
+    Jober.spec = spec
+    return app
+app.state.setup = setup
+
+
 @app.exception_handler(errors.Error)
 def handle_exception(request: Request, exc: errors.Error):
     return JSONResponse({
@@ -23,11 +50,13 @@ def handle_exception(request: Request, exc: errors.Error):
 @app.on_event('startup')
 def on_startup():
     Jober.get_instance().start()
+app.state.startup = on_startup
 
 
 @app.on_event('shutdown')
 def on_shutdown():
     Jober.get_instance().stop()
+app.state.shutdown = on_shutdown
 
 
 @app.get('/api/job/jobs')
