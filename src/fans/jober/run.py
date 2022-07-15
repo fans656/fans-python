@@ -1,7 +1,9 @@
 import sys
 import uuid
 import select
+import signal
 import asyncio
+import pathlib
 import tempfile
 import threading
 import traceback
@@ -20,16 +22,20 @@ class Run:
 
     @classmethod
     def from_archived(cls, path: Path):
-        return cls(**(path / 'meta.json').load())
+        return cls(
+            **(path / 'meta.json').load(),
+            run_dir = path,
+        )
 
     def __init__(
             self,
-            run_spec: dict = None,
+            run_spec: dict,
+            run_dir: Union[str, pathlib.Path] = None,
             id: str = None,
             beg: Union[str, Timestamp] = None,
             end: Union[str, Timestamp] = None,
-            run_dir: str = None,
-            out_path: str = None,
+            status: str = None,
+            error: str = None,
             on_event: Callable[[dict], None] = None,
             **__,
     ):
@@ -55,18 +61,135 @@ class Run:
             ...
         """
         self.run_spec = run_spec
+        self.run_dir = Path(run_dir) if run_dir else None
         self.id = id or uuid.uuid4().hex
-
         self.beg = Timestamp.from_datetime_str(beg)
         self.end = Timestamp.from_datetime_str(end)
+        self.on_event = on_event or noop
+        self.error = error
+        self._status = status or 'ready'
 
-        self.run_dir = Path(run_dir or tempfile.gettempdir())
-        self.out_path = out_path or self.run_dir / 'out.log'
+        self.proc = None
+        self.out_file = None
+        self.runned = False
+
+        self.run_dir.ensure_dir()
+        self.out_path = self.run_dir / 'out.log'
         self.meta_path = self.run_dir / 'meta.json'
 
-        self._status = 'init'
-        self.on_event = on_event or noop
-        self.finished = False
+        if not self.out_path.exists():
+            self.out_file = self.out_path.open('w+', buffering = 1)
+
+        if not self.meta_path.exists():
+            self.save_meta()
+
+    def __call__(self):
+        if self.runned:
+            raise RuntimeError('already runned')
+        try:
+            self.beg = now()
+            self.status = 'running'
+            self.save_meta()
+            self.run()
+        except:
+            self.end = now()
+            self.error = traceback.format_exc()
+            self.status = 'error'
+            traceback.print_exc()
+        else:
+            self.end = now()
+            self.status = 'done'
+        finally:
+            self.save_meta()
+            self.runned = True
+
+    def run(self):
+        spec = self.run_spec
+        run_type = spec['type']
+        run_func = self.run_command
+        run_args = {
+            'cwd': spec.get('cwd') or str(self.run_dir),
+            'env': {
+                'PYTHONUNBUFFERED': '1', # ensure output is unbuffered
+                **spec.get('env', {}),
+            },
+        }
+        if run_type == 'command':
+            run_args['cmd'] = spec['cmd']
+        elif run_type == 'script':
+            run_args['cmd'] = [sys.executable, spec['script'], *spec.get('args', [])]
+        elif run_type == 'module':
+            run_args['cmd'] = [sys.executable, '-m', spec['module'], *spec.get('args', [])]
+        else:
+            raise RuntimeError(f'unsupported runnable: {spec}')
+        run_func(**run_args)
+
+    def run_command(
+            self,
+            cmd,
+            cwd = None,
+            env = None,
+    ):
+        # TODO: handle orphan child process case
+        self.proc = subprocess.Popen(
+            cmd,
+            cwd = cwd,
+            env = env,
+            stdout = subprocess.PIPE,
+            stderr = subprocess.STDOUT, # redirect to stdout
+            bufsize = 1,
+            encoding = 'utf-8',
+            universal_newlines = True,
+            # `shell = True` is to support bash one liner
+            # otherwise use `False` so `kill/terminate` can be done quickly
+            shell = isinstance(cmd, str),
+        )
+        try:
+            out_file = self.out_file
+            for line in iter(self.proc.stdout.readline, ''):
+                out_file.write(line)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.proc.wait()
+            if self.out_file:
+                self.out_file.close()
+                self.out_file = None
+            if self.proc.returncode < 0:
+                raise RuntimeError(f'run killed: {self.run_spec}')
+
+    def save_meta(self):
+        self.meta_path.save({
+            'run_spec': self.run_spec,
+            'id': self.id,
+            'beg': self.beg.datetime_str() if self.beg else None,
+            'end': self.end.datetime_str() if self.end else None,
+            'status': self.status,
+            'error': self.error,
+        }, indent = 2)
+
+    def kill(self):
+        if self.proc:
+            self.proc.kill()
+            return True
+        else:
+            return False
+
+    def terminate(self):
+        if self.proc:
+            self.proc.terminate()
+            return True
+        else:
+            return False
+
+    def info(self):
+        return {
+            'run_id': self.id,
+            'status': self.status,
+            'error': self.error,
+            'beg': Timestamp.to_datetime_str(self.beg),
+            'end': Timestamp.to_datetime_str(self.end),
+        }
 
     @property
     def status(self):
@@ -77,8 +200,11 @@ class Run:
         self._status = status
         self.on_event({
             'event': 'run_status_changed',
-            'id': self.id,
+            'run_id': self.id,
             'status': self._status,
+            'error': self.error,
+            'beg': Timestamp.to_datetime_str(self.beg),
+            'end': Timestamp.to_datetime_str(self.end),
         })
 
     @property
@@ -86,7 +212,7 @@ class Run:
         """
         Get output as a whole.
 
-        Note: Partial output maybe got if the running is not finished.
+        Note: Partial output maybe got if still running.
         """
         with self.out_path.open() as f:
             return f.read()
@@ -100,7 +226,7 @@ class Run:
                 for line in iter(f.readline, ''):
                     yield line[:-1]
                 _, _, error = select.select([f], [], [f], 0.01)
-                if error or self.finished:
+                if error or self.runned:
                     break
 
     async def iter_output_async(
@@ -116,89 +242,45 @@ class Run:
                     for line in iter(f.readline, ''):
                         loop.call_soon_threadsafe(que.put_nowait, line)
                     _, _, error = select.select([f], [], [f], 0.01)
-                    if error or self.finished:
+                    if error or self.runned:
+                        loop.call_soon_threadsafe(que.put_nowait, None)
                         break
         loop = loop or asyncio.get_event_loop()
         que = asyncio.Queue()
         thread = threading.Thread(target = collect)
         thread.start()
         while line := await que.get():
+            if line is None:
+                break
             yield line[:-1]
 
-    def __call__(self):
-        try:
-            self.beg = now()
-            self.status = 'running'
-            self.save_meta()
-            self.run()
-        except:
-            self.status = 'error'
-            traceback.print_exc()
-        else:
-            self.status = 'done'
-        finally:
-            self.end = now()
-            self.save_meta()
+    def __del__(self):
+        if self.out_file:
+            self.out_file.close()
+            self.out_file = None
 
-    def run(self):
-        spec = self.run_spec
-        run_type = spec['type']
-        run_func = self.run_command
-        run_args = {
-            'cwd': spec.get('cwd'),
-            'env': {
-                'PYTHONUNBUFFERED': '1', # ensure output is unbuffered
-                **spec.get('env'),
-            },
-        }
-        if run_type == 'command':
-            run_args['cmd'] = spec['cmd']
-        elif run_type == 'script':
-            run_args['cmd'] = [sys.executable, spec['script'], *spec['args']]
-        elif run_type == 'module':
-            run_args['cmd'] = [sys.executable, '-m', spec['module'], *spec['args']]
-        else:
-            raise RuntimeError(f'unsupported runnable: {spec}')
-        run_func(**run_args)
 
-    def run_command(
-            self,
-            cmd,
-            cwd = None,
-            env = None,
-    ):
-        if isinstance(cmd, list):
-            cmd = ' '.join(cmd)
-        with self.out_path.open('w+', buffering = 1) as out_file:
-            self.proc = subprocess.Popen(
-                cmd,
-                cwd = cwd,
-                env = env,
-                stdout = subprocess.PIPE,
-                stderr = subprocess.STDOUT, # redirect to stdout
-                bufsize = 1,
-                encoding = 'utf-8',
-                universal_newlines = True,
-                shell = True, # to support bash one liner
-            )
-            try:
-                for line in iter(self.proc.stdout.readline, ''):
-                    out_file.write(line)
-            except KeyboardInterrupt:
-                pass
-            finally:
-                self.proc.wait()
-                self.finished = True
-                self.proc = None
+class DummyRun:
 
-    def save_meta(self):
-        self.meta_path.save({
-            'id': self.id,
-            'run': self.run_spec,
-            'beg': self.beg.datetime_str() if self.beg else None,
-            'end': self.end.datetime_str() if self.end else None,
-            'status': self.status,
-        }, indent = 2)
+    def __init__(self):
+        self.run_spec = {}
+        self.run_dir = None
+        self.id = None
+        self.beg = None
+        self.end = None
+        self.on_event = noop
+
+        self.error = None
+        self.proc = None
+        self.out_file = None
+        self.runned = False
+        self.status = 'ready'
+
+        self.out_path = None
+        self.meta_path = None
+
+    def __bool__(self):
+        return False
 
 
 # NOTE: using this on `subprocess.Popen(preexec_fn = ...)` will sometimes hang, don't know why.

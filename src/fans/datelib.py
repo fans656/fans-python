@@ -26,6 +26,13 @@ class Timestamp:
             return value
         return from_native(datetime.datetime.strptime(value, Timestamp.datetime_str_fmt).astimezone(timezone))
 
+    @classmethod
+    def to_datetime_str(cls, value):
+        if isinstance(value, cls):
+            return value.datetime_str()
+        else:
+            return value
+
     def offset(self, *args, **kwargs):
         return Timestamp(self.value + pd.DateOffset(*args, **kwargs))
 

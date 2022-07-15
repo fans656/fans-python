@@ -90,17 +90,31 @@ class Jober:
         # TODO: passing args
         self.sched.add_job(job, DateTrigger())
 
+    def stop_job(self, id: str, force: bool = False):
+        job = self.get_job_by_id(id)
+        if not job:
+            raise errors.NotFound(f'"{id}" not found')
+        if force:
+            job.terminate()
+        else:
+            job.kill()
+
     def make_job(self, spec: dict) -> Job:
         """
         Make a new job given the job spec.
         """
         return Job(
-            context = {
-                **self.context,
-            },
-            root_dir = self.context.get('root_dir'),
+            name = spec.get('name'),
+            id = spec.get('id'),
+            cmd = spec.get('cmd'),
+            script = spec.get('script'),
+            module = spec.get('module'),
+            args = spec.get('args'),
+            cwd = spec.get('cwd'),
+            env = spec.get('env'),
+            sched = spec.get('sched'),
+            config = self.spec.get('job.config'),
             on_event = self.pubsub.publish,
-            **spec,
         )
 
     def add_job(self, job: Job):
