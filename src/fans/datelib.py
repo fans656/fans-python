@@ -33,6 +33,9 @@ class Timestamp:
         else:
             return value
 
+    def to_native(self):
+        return self.value.to_pydatetime()
+
     def offset(self, *args, **kwargs):
         return Timestamp(self.value + pd.DateOffset(*args, **kwargs))
 

@@ -7,10 +7,12 @@ import pytz
 from fans.path import Path
 from fans.logger import get_logger
 from fans.pubsub import PubSub
+from fans.datelib import now
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.events import EVENT_JOB_REMOVED
 
 from . import errors
 from .job import Job
@@ -39,6 +41,7 @@ class Jober:
     def __init__(self, spec: SpecSource = None):
         self._jobs = []
         self._id_to_job = {}
+        self._sched_job_id_to_job = {}
 
         self.pubsub = PubSub()
 
@@ -51,6 +54,7 @@ class Jober:
             },
             timezone = pytz.timezone('Asia/Shanghai'),
         )
+        self.sched.add_listener(self._on_sched_event, EVENT_JOB_REMOVED)
 
         self.spec = spec = load_spec(spec)
         self.context = spec.get('context', {})
@@ -88,7 +92,7 @@ class Jober:
         if not job:
             raise errors.NotFound(f'"{id}" not found')
         # TODO: passing args
-        self.sched.add_job(job, DateTrigger())
+        self._schedule_job(job, DateTrigger())
 
     def stop_job(self, id: str, force: bool = False):
         job = self.get_job_by_id(id)
@@ -113,8 +117,10 @@ class Jober:
             cwd = spec.get('cwd'),
             env = spec.get('env'),
             sched = spec.get('sched'),
+            retry = spec.get('retry'),
             config = self.spec.get('job.config'),
             on_event = self.pubsub.publish,
+            on_retry = self._retry_job,
         )
 
     def add_job(self, job: Job):
@@ -152,9 +158,31 @@ class Jober:
         if isinstance(sched_spec, int):
             seconds = sched_spec
             if seconds > 0:
-                # TODO: access to this job sched when seconds is like 3600
-                self.sched.add_job(job, DateTrigger()) # first run
-            job.sched_job = self.sched.add_job(job, IntervalTrigger(seconds = seconds))
+                self._schedule_job(job, DateTrigger()) # first run
+            self._schedule_job(job, IntervalTrigger(seconds = seconds))
         # TODO: other triggers
         else:
             logger.warning(f'unsupported sched: {repr(sched_spec)}')
+
+    def _retry_job(self, job, run):
+        date = now().offset(seconds = job.retry['delay']).to_native()
+        context = run.context or {'remaining_retry': job.retry.get('times')}
+        func = lambda: job(context = {
+            **context,
+            'remaining_retry': context.get('remaining_retry', 0) - 1,
+        })
+        self._schedule_job(job, DateTrigger(date), func = func)
+
+    def _schedule_job(self, job, trigger, func = None):
+        func = func or job
+        sched_job = self.sched.add_job(func, trigger)
+        job.sched_job_id_to_sched_job[sched_job.id] = sched_job
+        self._sched_job_id_to_job[sched_job.id] = job
+
+    def _on_sched_event(self, event):
+        if event.code == EVENT_JOB_REMOVED:
+            job = self._sched_job_id_to_job.get(event.job_id)
+            del job.sched_job_id_to_sched_job[event.job_id]
+            del self._sched_job_id_to_job[event.job_id]
+        else:
+            logger.warning(f'unhandled sched event {event}')

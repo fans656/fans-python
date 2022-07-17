@@ -14,11 +14,15 @@ import tempfile
 import traceback
 from typing import Iterable, Union, Callable, List
 
-from fans.fn import noop
+from fans.fn import noop, parse_int
 from fans.path import Path
+from fans.logger import get_logger
 from fans.datelib import native_now, from_native, Timestamp
 
 from .run import Run, DummyRun
+
+
+logger = get_logger(__name__)
 
 
 class Job:
@@ -34,8 +38,10 @@ class Job:
             cwd: str = None,
             env: Union[str, dict] = None,
             sched: any = None,
+            retry: any = None,
             config: dict = None,
             on_event: Callable[[dict], None] = None,
+            on_retry: Callable[['Job'], None] = None,
     ):
         self.name = name
         self.id = id or name or uuid.uuid4().hex
@@ -46,9 +52,11 @@ class Job:
         self.cwd = cwd
         self.env = self.parse_dict(env)
         self.sched = sched
+        self.retry = self.parse_retry(retry)
         self.config = config or {}
         self.root_dir = self.ensure_root_dir(self.config.get('runs_dir'))
         self.on_event = on_event or noop
+        self.on_retry = on_retry or noop
 
         if self.cmd:
             self.type = 'command'
@@ -64,10 +72,10 @@ class Job:
             self.type = 'invalid'
 
         self.run_id_to_active_run = {}
-        self.sched_job = None
+        self.sched_job_id_to_sched_job = {}
 
-    def __call__(self):
-        run = self.prepare_run()
+    def __call__(self, context = None):
+        run = self.prepare_run(context = context)
         self.run_id_to_active_run[run.id] = run
         try:
             run()
@@ -79,12 +87,10 @@ class Job:
 
     def kill(self):
         run = self.latest_run
-        print('kill', run, run.proc)
         return self.latest_run.kill()
 
     def terminate(self):
         run = self.latest_run
-        print('terminate', run, run.proc)
         return self.latest_run.terminate()
 
     def process_event(self, event):
@@ -93,6 +99,20 @@ class Job:
             'next_run_time': self.next_run_time,
         })
         self.on_event(event)
+
+    def process_exit(self, run):
+        if run.returncode != 0:
+            self.process_retry(run)
+            if run.returncode < 0:
+                raise RuntimeError(f'run killed')
+            elif run.returncode > 0:
+                raise RuntimeError(f'non zero return code: {run.returncode}')
+
+    def process_retry(self, run):
+        if not self.retry:
+            return
+        if not run.context or run.context.get('remaining_retry', 0) > 0:
+            self.on_retry(self, run)
 
     def info(self):
         ret = {
@@ -107,6 +127,9 @@ class Job:
             'beg': Timestamp.to_datetime_str(self.beg),
             'end': Timestamp.to_datetime_str(self.end),
             'next_run_time': self.next_run_time,
+            'sched': self.sched,
+            'retry': self.retry,
+            'config': self.config,
         }
         return ret
 
@@ -135,9 +158,14 @@ class Job:
 
     @property
     def next_run_time(self) -> str:
-        if self.sched_job:
-            dt = self.sched_job.trigger.get_next_fire_time(0, native_now())
-            return from_native(dt).datetime_str()
+        tss = list(filter(bool, [
+            sched_job.trigger.get_next_fire_time(None, native_now())
+            for sched_job in self.sched_job_id_to_sched_job.values()
+        ]))
+        if tss:
+            return min(from_native(ts).datetime_str() for ts in tss)
+        else:
+            return None
 
     @property
     def latest_run(self):
@@ -172,9 +200,27 @@ class Job:
             return value
         raise RuntimeError(f'invalid {hint or "value"} {value}')
 
-    def prepare_run(self):
+    def parse_retry(self, retry):
+        if retry is None:
+            return {
+                'times': 0,
+            }
+        elif isinstance(retry, bool):
+            return {
+                'times': 1,
+                'delay': 300,
+            }
+        elif isinstance(retry, dict):
+            return {
+                'times': parse_int(retry.get('times'), 1),
+                'delay': parse_int(retry.get('delay'), 300),
+            }
+        else:
+            raise RuntimeError(f'unsupported retry spec: {retry}')
+
+    def prepare_run(self, context = None):
         self.clear_old_runs()
-        return self.make_run()
+        return self.make_run(context = context)
 
     def clear_old_runs(self):
         value = self.config.get('limit.archived.runs') or 0
@@ -189,19 +235,26 @@ class Job:
                 for path in sorted(run_paths)[0:len(run_paths) - limit + 1]:
                     shutil.rmtree(path)
 
-    def make_run(self):
+    def make_run(self, context = None):
         run_id = make_run_id()
         run_dir = self.root_dir / run_id
         run_dir.ensure_dir()
-        return Run({
-            'type': self.type,
-            'cmd': self.cmd,
-            'script': self.script,
-            'module': self.module,
-            'args': self.args,
-            'cwd': self.cwd,
-            'env': self.env,
-        }, run_dir, id = run_id, on_event = self.process_event)
+        return Run(
+            {
+                'type': self.type,
+                'cmd': self.cmd,
+                'script': self.script,
+                'module': self.module,
+                'args': self.args,
+                'cwd': self.cwd,
+                'env': self.env,
+            },
+            run_dir,
+            id = run_id,
+            on_event = self.process_event,
+            on_exit = self.process_exit,
+            context = context,
+        )
 
     def ensure_root_dir(self, path: Union[str, Path]):
         if not path:
@@ -209,6 +262,10 @@ class Job:
         path = Path(path) / self.id
         path.ensure_dir()
         return path
+
+    def with_retry(self):
+        func = lambda: self(retrying = 1) # TODO: only support 1 times for now
+        return func, self
 
     def __repr__(self):
         return f'Job(name = {self.name})'

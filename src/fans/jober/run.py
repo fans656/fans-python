@@ -36,7 +36,9 @@ class Run:
             end: Union[str, Timestamp] = None,
             status: str = None,
             error: str = None,
+            context: dict = None,
             on_event: Callable[[dict], None] = None,
+            on_exit: Callable[['Run'], None] = None,
             **__,
     ):
         """
@@ -65,7 +67,9 @@ class Run:
         self.id = id or uuid.uuid4().hex
         self.beg = Timestamp.from_datetime_str(beg)
         self.end = Timestamp.from_datetime_str(end)
+        self.context = context or {}
         self.on_event = on_event or noop
+        self.on_exit = on_exit or noop
         self.error = error
         self._status = status or 'ready'
 
@@ -155,8 +159,8 @@ class Run:
             if self.out_file:
                 self.out_file.close()
                 self.out_file = None
-            if self.proc.returncode < 0:
-                raise RuntimeError(f'run killed: {self.run_spec}')
+            self.returncode = self.proc.returncode
+            self.on_exit(self)
 
     def save_meta(self):
         self.meta_path.save({
@@ -258,6 +262,9 @@ class Run:
         if self.out_file:
             self.out_file.close()
             self.out_file = None
+
+    def __hash__(self):
+        return hash(self.id)
 
 
 class DummyRun:
