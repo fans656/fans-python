@@ -1,6 +1,7 @@
 import sys
 import types
 import pathlib
+from typing import Callable
 
 
 class Path(type(pathlib.Path())):
@@ -26,6 +27,27 @@ class Path(type(pathlib.Path())):
     def store(self):
         from fans.store import Store
         return Store(self)
+
+    def watch(self, on_event: Callable[['watchdog.events.FileSystemEvent'], None], now = True):
+        import threading
+        from watchdog.observers import Observer
+        from watchdog.events import FileSystemEventHandler
+
+        class Handler(FileSystemEventHandler):
+
+            def on_any_event(self, event):
+                on_event(event)
+
+        def do_watch():
+            observer.start()
+            observer.join()
+
+        observer = Observer()
+        observer.schedule(Handler(), self)
+        thread = threading.Thread(target = do_watch, daemon = True)
+        if now:
+            thread.start()
+        return thread
 
     def __getattr__(self, key):
         return getattr(self.store, key)

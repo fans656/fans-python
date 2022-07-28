@@ -16,7 +16,7 @@ If you are mounting app as a sub app, you should execute `startup/shutdown` in r
 You can use `app.state.setup` to assign jober spec, like:
 
     root_app.mount('/', app.state.setup(
-        spec = '/home/fans656/.fme/jober/conf.yaml',
+        spec = '/home/fans656/enos/.fme/jober/conf.yaml',
     ))
 """
 import json

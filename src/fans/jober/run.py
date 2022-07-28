@@ -1,3 +1,4 @@
+import os
 import sys
 import uuid
 import select
@@ -135,10 +136,11 @@ class Run:
             env = None,
     ):
         # TODO: handle orphan child process case
+        use_shell = isinstance(cmd, str)
         self.proc = subprocess.Popen(
             cmd,
             cwd = cwd,
-            env = env,
+            env = {**os.environ, **env} if use_shell else env,
             stdout = subprocess.PIPE,
             stderr = subprocess.STDOUT, # redirect to stdout
             bufsize = 1,
@@ -146,7 +148,7 @@ class Run:
             universal_newlines = True,
             # `shell = True` is to support bash one liner
             # otherwise use `False` so `kill/terminate` can be done quickly
-            shell = isinstance(cmd, str),
+            shell = use_shell,
         )
         try:
             out_file = self.out_file

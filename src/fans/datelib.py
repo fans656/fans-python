@@ -9,6 +9,7 @@ timezone = pytz.timezone('Asia/Shanghai')
 
 class Timestamp:
 
+    date_str_fmt = '%Y-%m-%d'
     datetime_str_fmt = '%Y-%m-%d %H:%M:%S'
 
     def __init__(self, value: pd.Timestamp):
@@ -21,10 +22,20 @@ class Timestamp:
         return self.value.strftime(Timestamp.datetime_str_fmt)
 
     @staticmethod
-    def from_datetime_str(value):
-        if isinstance(value, (Timestamp, type(None))):
+    def from_date_str(value):
+        if isinstance(value, (Timestamp, NoneType)):
             return value
-        return from_native(datetime.datetime.strptime(value, Timestamp.datetime_str_fmt).astimezone(timezone))
+        return from_native(
+            datetime.datetime.strptime(value, Timestamp.date_str_fmt).astimezone(timezone)
+        )
+
+    @staticmethod
+    def from_datetime_str(value):
+        if isinstance(value, (Timestamp, NoneType)):
+            return value
+        return from_native(
+            datetime.datetime.strptime(value, Timestamp.datetime_str_fmt).astimezone(timezone)
+        )
 
     @classmethod
     def to_datetime_str(cls, value):
@@ -42,8 +53,38 @@ class Timestamp:
     def round(self, freq = 'D'):
         return Timestamp(self.value.round(freq = freq))
 
+    def floor(self, freq = 'D'):
+        return Timestamp(self.value.floor(freq = freq))
+
     def ms(self):
         return int(self.value.timestamp() * 1000)
+
+    def from_now(self) -> pd.Timedelta:
+        return self.value - now().value
+
+    def from_today(self) -> pd.Timedelta:
+        return self.value - today().value
+
+    def till_now(self) -> pd.Timedelta:
+        return now().value - self.value
+
+    def __lt__(self, other):
+        return self.value < other.value
+
+    def __le__(self, other):
+        return self.value <= other.value
+
+    def __gt__(self, other):
+        return self.value > other.value
+
+    def __ge__(self, other):
+        return self.value >= other.value
+
+    def __eq__(self, other):
+        return self.value == other.value
+
+    def __ne__(self, other):
+        return self.value != other.value
 
     def __repr__(self):
         return repr(self.value)
@@ -54,7 +95,7 @@ def now(timezone = timezone):
 
 
 def today(timezone = timezone):
-    return now(timezone = timezone)
+    return now(timezone = timezone).floor()
 
 
 def yesterday(timezone = timezone):
@@ -69,5 +110,12 @@ def from_native(datetime):
     return Timestamp(pd.to_datetime(datetime))
 
 
+from_date_str = Timestamp.from_date_str
+from_datetime_str = Timestamp.from_datetime_str
+
+
 def native_now(timezone = timezone):
     return datetime.datetime.now(timezone)
+
+
+NoneType = type(None)
