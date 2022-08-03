@@ -86,6 +86,9 @@ class Timestamp:
     def __ne__(self, other):
         return self.value != other.value
 
+    def __str__(self):
+        return str(self.value.to_pydatetime())
+
     def __repr__(self):
         return repr(self.value)
 

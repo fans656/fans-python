@@ -1,5 +1,4 @@
 import pathlib
-from types import SimpleNamespace
 from typing import Iterable
 
 import fans.tree.tree
@@ -8,7 +7,7 @@ import fans.bunch
 from .enhanced import Path
 
 
-def maketree(specs):
+def make_paths(specs: Iterable[any]):
     assert isinstance(specs, Iterable), f"specs should be an iterable, not {type(specs)}"
     specs = list(normalize_specs(specs))
     root = fans.tree.make({'path': '', 'children': specs}, PathNode, assign_parent = True)

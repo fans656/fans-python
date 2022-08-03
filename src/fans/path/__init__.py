@@ -1,2 +1,2 @@
 from .enhanced import Path
-from .tree import maketree
+from .paths import make_paths
