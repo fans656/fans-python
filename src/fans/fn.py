@@ -16,3 +16,13 @@ def parse_int(value, default = 0):
 def calc_dict_md5(data):
     text = json.dumps(data, sort_keys = True, ensure_ascii = False)
     return hashlib.md5(text.encode()).hexdigest()
+
+
+def partition(xs, pred = identity):
+    ts, fs = [], []
+    for x in xs:
+        if pred(x):
+            ts.append(x)
+        else:
+            fs.append(x)
+    return ts, fs

@@ -103,10 +103,6 @@ class Job:
     def process_exit(self, run):
         if run.returncode != 0:
             self.process_retry(run)
-            if run.returncode < 0:
-                raise RuntimeError(f'run killed')
-            elif run.returncode > 0:
-                raise RuntimeError(f'non zero return code: {run.returncode}')
 
     def process_retry(self, run):
         if not self.retry:

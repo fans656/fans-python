@@ -107,6 +107,7 @@ class Run:
         finally:
             self.save_meta()
             self.runned = True
+            self.on_exit(self)
 
     def run(self):
         spec = self.run_spec
@@ -162,7 +163,11 @@ class Run:
                 self.out_file.close()
                 self.out_file = None
             self.returncode = self.proc.returncode
-            self.on_exit(self)
+            if self.returncode != 0:
+                if self.returncode < 0:
+                    raise RuntimeError(f'run killed')
+                elif self.returncode > 0:
+                    raise RuntimeError(f'non zero return code: {run.returncode}')
 
     def save_meta(self):
         self.meta_path.save({

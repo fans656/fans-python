@@ -1,6 +1,6 @@
 import pathlib
 
-from fans.path import enhanced, maketree
+from fans.path import enhanced
 from fans.path.enhanced import Path
 
 
@@ -19,7 +19,3 @@ def test_enhanced():
     path = Path(Path('foo'))
     assert isinstance(path, Path)
     assert str(path) == 'foo'
-
-
-def test_maketree():
-    pass
