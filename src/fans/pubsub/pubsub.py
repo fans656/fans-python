@@ -98,15 +98,16 @@ class PubSub:
             return
         runner = self.runner
         runner.make_async()
+        if not runner.consumers:
+            with self._thread_id_to_runner_lock:
+                del self._thread_id_to_runner[runner.thread_id]
+            return
 
         self.running = True
 
-        print(f'{runner} loop')
         while (event := await runner.get_event_async()):
-            print(event)
             consumer, data = event
             await consumer.handle_async(data)
-        print('done')
         await runner.close()
 
         self.running = False
@@ -230,7 +231,6 @@ class Runner:
 
     def queue_put(self, item):
         if self.is_async:
-            print(f'{self} queue_put {item}')
             self.queue_async.sync_q.put(item)
         else:
             self.queue.put(item)
