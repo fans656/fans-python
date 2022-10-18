@@ -167,7 +167,7 @@ class Run:
                 if self.returncode < 0:
                     raise RuntimeError(f'run killed')
                 elif self.returncode > 0:
-                    raise RuntimeError(f'non zero return code: {run.returncode}')
+                    raise RuntimeError(f'non zero return code: {self.returncode}')
 
     def save_meta(self):
         self.meta_path.save({

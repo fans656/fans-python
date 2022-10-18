@@ -15,8 +15,11 @@ class Timestamp:
     def __init__(self, value: pd.Timestamp):
         self.value = value
 
-    def date_str(self):
-        return self.value.strftime('%Y-%m-%d')
+    def date_str(self, fmt = '%Y-%m-%d'):
+        return self.value.strftime(fmt)
+
+    def time_str(self, fmt = '%H:%M:%S'):
+        return self.value.strftime(fmt)
 
     def datetime_str(self):
         return self.value.strftime(Timestamp.datetime_str_fmt)
@@ -67,6 +70,9 @@ class Timestamp:
 
     def till_now(self) -> pd.Timedelta:
         return now().value - self.value
+
+    def till_today(self) -> pd.Timedelta:
+        return today().value - self.value
 
     def __lt__(self, other):
         return self.value < other.value

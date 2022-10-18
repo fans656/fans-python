@@ -4,6 +4,8 @@ import hashlib
 
 noop = lambda *_, **__: None
 identity = lambda x: x
+pred_true = lambda _: True
+pred_false = lambda _: False
 
 
 def parse_int(value, default = 0):

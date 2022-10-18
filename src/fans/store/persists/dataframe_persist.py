@@ -1,3 +1,4 @@
+import pandas as pd
 import fastparquet
 
 from .utils import atomic_write
@@ -15,3 +16,9 @@ class Persist:
     def load(cls, path, hint, **kwargs):
         return fastparquet.ParquetFile(str(path)).to_pandas()
 
+    def extend(self, path, df, hint, **kwargs):
+        if path.exists():
+            orig_df = self.load(path, hint)
+            df = pd.concat([orig_df, df]).drop_duplicates()
+        self.save(path, df, hint, **kwargs)
+        return True

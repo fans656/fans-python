@@ -8,6 +8,30 @@ import janus
 
 
 class PubSub:
+    """
+    Get pubsub instance:
+
+        # option 1: use the pre-defined instance
+        from fans.pubsub import pubsub
+
+        # option 2: instantiate separate instance
+        from fans.pubsub import PubSub
+        pubsub = PubSub()
+
+    different `PubSub` instances are separted environment for events publishing/subscribing.
+
+
+    Usage (single thread):
+
+        def callback(data):
+            print(data)
+
+        pubsub.subscribe(callback, 'foo') # registered the callback
+        pubsub.publish({'hello': 'world'}, 'foo') # published the event into pubsub
+        pubsub.run() # this will trigger the callback
+
+    the `topic` parameter can be ignored and will defaults to `None`.
+    """
 
     def __init__(self):
         self.running = False
@@ -43,42 +67,49 @@ class PubSub:
             with self._thread_id_to_runner_lock:
                 del self._thread_id_to_runner[runner.thread_id]
 
+    def start(self):
+        """
+        Note: Call this only when used for blocking run.
+        """
+        self.thread = threading.Thread(target = self.run)
+        self.thread.start()
+
     def run(self):
         """
         Blocking loop to run callbacks in current thread.
+
+        Note: Call this only when used for blocking run.
         """
         # TODO: move while loop into runner
         if self.running:
             return
         runner = self.runner
-        if not runner:
-            return False
+
         self.running = True
-        while True:
-            event = runner.get_event()
-            if event is None:
-                break
-            consumer, data = event
-            consumer(data)
+
+        while (event := runner.get_event()):
+            consume, data = event
+            consume(data)
+
         self.running = False
-        return True
 
     async def run_async(self):
         if self.running:
             return
         runner = self.runner
-        if not runner:
-            return False
+        runner.make_async()
+
         self.running = True
-        while True:
-            event = await runner.get_event_async()
-            if event is None:
-                await runner.close()
-                break
+
+        print(f'{runner} loop')
+        while (event := await runner.get_event_async()):
+            print(event)
             consumer, data = event
             await consumer.handle_async(data)
+        print('done')
+        await runner.close()
+
         self.running = False
-        return True
 
     async def join_async(self):
         """
@@ -126,8 +157,11 @@ class Consumer:
     def __exit__(self, *_, **__):
         self.runner.pubsub.unsubscribe(self)
 
-    async def get_async(self):
-        return await self._data_queue.async_q.get()
+    async def get_async(self, wait = True):
+        if wait:
+            return await self._data_queue.async_q.get()
+        else:
+            return await self._data_queue.async_q.get_nowait()
 
     def publish(self, data):
         self.runner.publish((self, data))
@@ -178,8 +212,11 @@ class Runner:
     def get_event(self):
         return self.queue.get()
 
-    async def get_event_async(self):
-        return await self.queue_async.async_q.get()
+    async def get_event_async(self, wait = True):
+        if wait:
+            return await self.queue_async.async_q.get()
+        else:
+            return await self.queue_async.async_q.get_nowait()
 
     def make_async(self):
         if not self.is_async:
@@ -193,6 +230,7 @@ class Runner:
 
     def queue_put(self, item):
         if self.is_async:
+            print(f'{self} queue_put {item}')
             self.queue_async.sync_q.put(item)
         else:
             self.queue.put(item)

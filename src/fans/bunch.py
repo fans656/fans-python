@@ -12,3 +12,6 @@ class bunch(dict):
     def __setattr__(self, key, value):
         self[key] = value
         self.__dict__[key] = value
+
+    def __getattr__(self, key):
+        return self.get(key)

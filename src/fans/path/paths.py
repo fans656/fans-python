@@ -8,13 +8,18 @@ from .enhanced import Path
 
 
 def make_paths(specs: Iterable[any]):
+    root = make_specs_tree(specs)
+    return root.node.build_namespace()
+
+
+def make_specs_tree(specs):
     assert isinstance(specs, Iterable), f"specs should be an iterable, not {type(specs)}"
     specs = list(normalize_specs(specs))
     root = fans.tree.make({'path': '', 'children': specs}, PathNode, assign_parent = True)
     root.data.path = Path('')
     root.children.normalize()
     root.derive()
-    return root.build_namespace()
+    return root
 
 
 def normalize_specs(specs):
@@ -60,6 +65,7 @@ def normalize_conf(conf, path):
 class PathNode:
 
     def __init__(self, data):
+        self.data = data
         self.name = data.get('name')
         self.path = data['path']
 

@@ -62,6 +62,17 @@ async def test_async_without_callback():
     await pubsub.join_async()
 
 
+#@pytest.mark.asyncio
+#async def test_async_nowait():
+#    pubsub = PubSub()
+#    with await pubsub.subscribe_async() as events:
+#        with pytest.raises(asyncio.QueueEmpty):
+#            event = await events.get_async(wait = False)
+#    await asyncio.sleep(1)
+#    #await pubsub.join_async()
+#    assert False
+
+
 @pytest.mark.asyncio
 async def test_async_without_callback_multi_consumers():
     pubsub = PubSub()

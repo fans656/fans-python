@@ -56,6 +56,12 @@ class Path(type(pathlib.Path())):
             observer.start()
         return observer
 
+    def on_modified(self, callback: Callable[[], any], now = True):
+        def on_event(event):
+            if not event.is_directory and event.event_type == 'modified':
+                callback()
+        self.watch(on_event)
+
     def __getattr__(self, key):
         return getattr(self.store, key)
 

@@ -109,11 +109,13 @@ conf_persist = PersistGetter('fans.store.persists.conf_persist')
 text_persist = PersistGetter('fans.store.persists.text_persist')
 jsonlines_persist = PersistGetter('fans.store.persists.jsonlines_persist')
 dataframe_persist = PersistGetter('fans.store.persists.dataframe_persist')
+pickle_persist = PersistGetter('fans.store.persists.pickle_persist')
 suffix_to_persist = {
     '.json': json_persist,
     '.yaml': yaml_persist,
     '.jl': jsonlines_persist,
     '.parq': dataframe_persist,
+    '.pickle': pickle_persist,
     '': text_persist,
 }
 hint_to_convert = {
