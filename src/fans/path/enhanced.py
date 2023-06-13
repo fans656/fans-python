@@ -24,6 +24,10 @@ class Path(type(pathlib.Path())):
         if self.exists():
             self.unlink()
 
+    def as_meta(self, **kwargs):
+        from .meta import Meta
+        return Meta(self, **kwargs)
+
     @property
     def mtime(self):
         try:

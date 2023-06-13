@@ -2,10 +2,15 @@ import os
 import json
 import logging
 import traceback
+import threading
 from pathlib import Path
 from collections.abc import Mapping
+from typing import Callable
 
 import pytz
+from fans import errors
+from fans.bunch import bunch
+from fans.fn import noop
 
 
 _setup_done = False
@@ -18,7 +23,7 @@ def get_logger(name):
     return Logger(logging.getLogger(name))
 
 
-def set_level(level):
+def set_log_level(level):
     logging.root.setLevel(level)
 
 
@@ -42,6 +47,74 @@ def setup_logging():
     _setup_done = True
 
 
+class ContextManager:
+
+    def __init__(self):
+        self.threadlocal = threading.local()
+
+    @property
+    def contexts(self):
+        if not hasattr(self.threadlocal, 'contexts'):
+            self.threadlocal.contexts = []
+        return self.threadlocal.contexts
+
+    def push(self, context):
+        self.contexts.append(context)
+
+    def pop(self):
+        contexts = self.contexts
+        if contexts:
+            contexts.pop()
+
+    def top(self):
+        contexts = self.contexts
+        return contexts[-1] if contexts else None
+
+    def create(self, *args, **kwargs):
+        return Context(self, *args, **kwargs)
+
+
+class Context:
+
+    def __init__(
+            self,
+            context_manager: ContextManager,
+            on_progress: Callable[[str, dict], None] = None,
+            on_notify: Callable[[dict], None] = None,
+            *,
+            __initial: bool = False,
+            **kwargs,
+    ):
+        self.__context_manager = context_manager
+        self.__kwargs = kwargs
+
+        parent = self.__context_manager.top()
+        if parent:
+            self.on_progress = on_progress or parent.on_progress
+            self.on_notify = on_notify or parent.on_notify
+            for key, value in parent.__kwargs.items():
+                setattr(self, key, kwargs.get(key, value))
+        else:
+            self.on_progress = on_progress
+            self.on_notify = on_notify
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    def __enter__(self):
+        self.__context_manager.push(self)
+        return self
+
+    def __exit__(self, *_, **__):
+        self.__context_manager.pop()
+
+    @property
+    def __parent(self) -> 'Context':
+        return
+
+
+context_manager = ContextManager()
+
+
 class Logger:
 
     def __init__(self, logger):
@@ -57,10 +130,51 @@ class Logger:
         kwargs.setdefault('logger', self.logger)
         return timing(*args, **kwargs)
 
-    def progress(self, *args, **kwargs):
-        from fans.progress import progress
-        kwargs.setdefault('logger', self.logger)
-        return progress(*args, **kwargs)
+    # TODO: remove old impl returning `progress` instance
+    #def progress(self, *args, **kwargs):
+    #    from fans.progress import progress
+    #    kwargs.setdefault('logger', self.logger)
+    #    return progress(*args, **kwargs)
+
+    def context(self, *args, **kwargs) -> Context:
+        """
+        Usage:
+
+            logger = get_logger(__name__)
+
+            with logger.context(on_progress = lambda message, data: ...):
+                logger.progress('hello')
+
+            # OR to get current context
+
+            context = logger.context()
+        """
+        if args or kwargs:
+            return context_manager.create(*args, **kwargs)
+        else:
+            return context_manager.top() or context_manager.create(
+                on_progress = noop,
+                on_notify = noop,
+            )
+
+    def progress(self, message: str = None, data: dict = None):
+        self.info(message)
+        self.context().on_progress(message, data)
+
+    def notify(self, data: dict):
+        self.context().on_notify(data)
+
+    def exception(self, message, data = None, exc_cls = None):
+        self.error(f'{message} | {data}')
+        exc_cls = exc_cls or Exception
+        return exc_cls(message, data)
+
+    def stop(self, *args, **kwargs):
+        # TODO: do not print the error
+        return self.exception(*args, **{'exc_cls': errors.Stop, **kwargs})
+
+    def fail(self, *args, **kwargs):
+        return self.exception(*args, **{'exc_cls': errors.Fail, **kwargs})
 
     def __getattr__(self, key):
         return getattr(self.logger, key)

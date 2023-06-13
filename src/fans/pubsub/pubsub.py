@@ -162,7 +162,7 @@ class Consumer:
         if wait:
             return await self._data_queue.async_q.get()
         else:
-            return await self._data_queue.async_q.get_nowait()
+            return self._data_queue.async_q.get_nowait()
 
     def publish(self, data):
         self.runner.publish((self, data))
@@ -217,7 +217,7 @@ class Runner:
         if wait:
             return await self.queue_async.async_q.get()
         else:
-            return await self.queue_async.async_q.get_nowait()
+            return self.queue_async.async_q.get_nowait()
 
     def make_async(self):
         if not self.is_async:

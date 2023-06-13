@@ -11,13 +11,13 @@ logger = get_logger(__name__)
 class Persist:
 
     def load(self, path, hint, **kwargs):
-        with path.open() as f:
+        with path.open(encoding = 'utf-8') as f:
             return json.load(f, **kwargs)
 
     def save(self, path, data, hint, **kwargs):
         kwargs.setdefault('ensure_ascii', False)
         # TODO: atomic write
-        with path.open('w') as f:
+        with path.open('w', encoding = 'utf-8') as f:
             json.dump(data, f, **kwargs)
 
     def extend(self, path, items, hint, key = None, **kwargs):

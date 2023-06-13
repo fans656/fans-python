@@ -52,7 +52,7 @@ class Store:
             lines = f.readlines()
             return map(convert, lines) if convert else lines
 
-    def _get_persist(self, hint = None):
+    def _get_persist(self, hint: dict = None):
         persist = None
         if hint:
             persist = hint.get('persist')
@@ -94,6 +94,8 @@ def normalized_hint(hint):
         keywords = set(hint.split())
         if 'config' in keywords:
             ret['persist'] = conf_persist.get_instance()
+        if 'json' in keywords:
+            ret['persist'] = json_persist.get_instance()
         if 'silent' in keywords:
             ret['silent'] = True
         return ret

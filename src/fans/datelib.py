@@ -1,7 +1,6 @@
 import datetime
 
 import pytz
-import pandas as pd
 
 
 timezone = pytz.timezone('Asia/Shanghai')
@@ -12,7 +11,7 @@ class Timestamp:
     date_str_fmt = '%Y-%m-%d'
     datetime_str_fmt = '%Y-%m-%d %H:%M:%S'
 
-    def __init__(self, value: pd.Timestamp):
+    def __init__(self, value: 'pd.Timestamp'):
         self.value = value
 
     def date_str(self, fmt = '%Y-%m-%d'):
@@ -51,6 +50,7 @@ class Timestamp:
         return self.value.to_pydatetime()
 
     def offset(self, *args, **kwargs):
+        import pandas as pd
         return Timestamp(self.value + pd.DateOffset(*args, **kwargs))
 
     def round(self, freq = 'D'):
@@ -62,16 +62,16 @@ class Timestamp:
     def ms(self):
         return int(self.value.timestamp() * 1000)
 
-    def from_now(self) -> pd.Timedelta:
+    def from_now(self) -> 'pd.Timedelta':
         return self.value - now().value
 
-    def from_today(self) -> pd.Timedelta:
+    def from_today(self) -> 'pd.Timedelta':
         return self.value - today().value
 
-    def till_now(self) -> pd.Timedelta:
+    def till_now(self) -> 'pd.Timedelta':
         return now().value - self.value
 
-    def till_today(self) -> pd.Timedelta:
+    def till_today(self) -> 'pd.Timedelta':
         return today().value - self.value
 
     def __lt__(self, other):
@@ -100,6 +100,7 @@ class Timestamp:
 
 
 def now(timezone = timezone):
+    import pandas as pd
     return Timestamp(pd.to_datetime(native_now(timezone = timezone)))
 
 
@@ -112,10 +113,12 @@ def yesterday(timezone = timezone):
 
 
 def from_ms(ms, timezone = timezone):
+    import pandas as pd
     return Timestamp(pd.to_datetime(datetime.datetime.fromtimestamp(ms / 1000, timezone)))
 
 
 def from_native(datetime):
+    import pandas as pd
     return Timestamp(pd.to_datetime(datetime))
 
 
