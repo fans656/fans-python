@@ -24,10 +24,10 @@ class Meta(dict):
         self.loaded = False
         self.before_save = before_save
 
-    def save(self, meta: dict = None):
-        meta_to_save = {**self, **(meta or {})}
-        self.before_save(meta_to_save)
-        self.update(meta_to_save)
+    def save(self, update: dict = None):
+        meta = {**self, **(update or {})}
+        self.before_save(meta)
+        self.update(meta)
         self.path.save(
             self,
             hint = 'json',
