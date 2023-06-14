@@ -28,7 +28,7 @@ if __name__ == '__main__':
         host_prefix = f'http://{host_ip}:{host_port}'
 
         args = sys.argv[1:]
-        encoding = 'gbk'
+        encoding = 'utf-8'
         if args:
             match args[0]:
                 case '-u':
