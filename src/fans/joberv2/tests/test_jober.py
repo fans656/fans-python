@@ -18,18 +18,23 @@ class Test_make_job:
         assert job.execution_mode == 'thread'
         assert job.source == f'[callable]{job.target.func}'
 
+    def test_make_callable_proc_job(self):
+        job = self.jober.make_job(lambda: None, mode = 'proc')
+        assert job.execution_mode == 'process'
+        assert job.source == f'[callable]{job.target.func}'
+
     def test_make_module_name_job(self):
-        job = self.jober.make_job('foo.bar:func', mode = 'module')
+        job = self.jober.make_job('foo.bar:func', type = 'module')
         assert job.execution_mode == 'thread'
         assert job.source == '[module]foo.bar:func'
 
     def test_make_module_path_job(self):
-        job = self.jober.make_job('/tmp/foo.py:func', mode = 'module path')
+        job = self.jober.make_job('/tmp/foo.py:func', type = 'module path')
         assert job.execution_mode == 'thread'
         assert job.source == '[module]/tmp/foo.py:func'
 
     def test_make_python_script_job(self):
-        job = self.jober.make_job('/tmp/foo.py', mode = 'py')
+        job = self.jober.make_job('/tmp/foo.py', type = 'py')
         assert job.execution_mode == 'process'
         assert job.source == '[script]/tmp/foo.py'
 
@@ -45,7 +50,7 @@ class Test_make_job:
 
         with pytest.raises(ValueError) as e:
             self.jober.make_job('', 'asdf')
-            assert str(e).startswith('invalid job mode')
+            assert str(e).startswith('invalid job target type')
 
 
 class Test_jober:
@@ -55,11 +60,16 @@ class Test_jober:
         cls.jober = Jober()
 
     def test_can_list_jobs(self):
-        self.jober.make_job('ls')
-        self.jober.make_job('date')
+        self.jober.add_job('ls')
+        self.jober.add_job('date')
         assert len(self.jober.jobs) == 2
 
     def test_start_stop(self):
         self.jober.make_job('ls')
         self.jober.start()
         self.jober.stop()
+
+
+class Test_args_kwargs:
+
+    pass

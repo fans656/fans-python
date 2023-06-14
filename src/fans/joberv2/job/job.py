@@ -10,6 +10,11 @@ class Job:
         self.target = target
         self.id = uuid.uuid4().hex
 
+        self.init()
+
+    def init(self):
+        pass
+
     @property
     def source(self):
         return self.target.source
