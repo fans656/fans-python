@@ -1,3 +1,5 @@
+import time
+
 import yaml
 import pytest
 from fans.path import Path
@@ -102,18 +104,59 @@ class Test_make_conf:
             assert conf[key] == value
 
 
-class Test_run_job:
+class Test_runnable_job:
 
-    @classmethod
-    def setup_class(cls):
-        cls.jober = Jober()
+    def test_job_status_done(self):
+        jober = Jober()
+        job = jober.run_job(self.func, mode = 'process')
+        assert job.status == 'ready'
 
-    def test_run_job(self):
-        self.jober.start()
-        #self.jober._wait_until_started()
-        job = self.jober.run_job(self.func, mode = 'process')
-        print(job)
-        assert False
+        jober.start()
+        wait_when_status(job, 'ready')
+        assert job.status == 'running'
+
+        wait_when_status(job, 'running')
+        assert job.status == 'done'
+
+        jober.stop()
+
+    def test_job_status_error(self):
+        jober = Jober()
+        job = jober.run_job(self.func_error, mode = 'process')
+        assert job.status == 'ready'
+
+        jober.start()
+        wait_when_status(job, 'ready')
+        assert job.status == 'running'
+
+        wait_when_status(job, 'running')
+        assert job.status == 'error'
+
+        jober.stop()
 
     def func(self):
-        print('hi')
+        time.sleep(0.001)
+
+    def func_error(self):
+        time.sleep(0.001)
+        raise Exception('oops')
+
+
+class Test_process_job:
+
+    pass
+
+
+class Test_tracked_process_job:
+
+    pass
+
+
+def wait_when_status(target, status, timeout = 1):
+    beg = time.time()
+    while True:
+        if target.status != status:
+            break
+        if time.time() - beg >= timeout:
+            break
+        time.sleep(0.001)

@@ -45,9 +45,12 @@ Example jobs:
     - fme (quantix.pricer, enos.backup)
     - stome (thumbnail.generate:ffmpeg, search)
 """
+import time
 import uuid
+import queue
 import traceback
 import threading
+import functools
 import multiprocessing as mp
 from pathlib import Path
 from enum import Enum
@@ -78,7 +81,6 @@ class ExecutionMode:
 
 class Jober:
 
-    # TODO: test
     def __init__(self, **conf_spec):
         """
         See `make_conf` for args doc
@@ -89,23 +91,30 @@ class Jober:
         self.n_threads = conf.n_threads
 
         self._id_to_job = {}
-
         self._mp_queue = mp.Queue()
+        self._th_queue = queue.Queue()
+
         self._sched = make_sched(**{
             **conf,
+            'thread_pool_kwargs': {
+                'initializer': _init_pool,
+                'initargs': (self._th_queue,),
+            },
             'process_pool_kwargs': {
-                'initializer': _init_pool_processes,
+                'initializer': _init_pool,
                 'initargs': (self._mp_queue,),
             },
         })
 
-        self._events_thread = threading.Thread(target = self._collect_events)
-        self._events_thread.daemon = True
+        self._process_events_thread = threading.Thread(
+            target = functools.partial(self._collect_events, self._mp_queue), daemon = True)
+
+        self._thread_events_thread = threading.Thread(
+            target = functools.partial(self._collect_events, self._th_queue), daemon = True)
 
     def run_job(self, *args, **kwargs) -> 'Job':
-        job = self.make_job(*args, **kwargs)
-        runnable, kwargs = job._make_runnable()
-        self._sched.run_singleshot(_run_func, (job.id, runnable, kwargs), mode = job.mode)
+        job = self.add_job(*args, **kwargs)
+        self._sched.run_singleshot(_run_job, (job.id, job.target), mode = job.mode)
         return job
 
     def add_job(self, *args, **kwargs) -> 'Job':
@@ -138,14 +147,14 @@ class Jober:
 
         Following type of target supported:
 
-            Callable                    - thread/mp-process job
-            module name / 'module'      - thread/mp-process job
-            module path / 'module path' - thread/mp-process job
+            Callable                    - thread/process job
+            module name / 'module'      - thread/process job
+            module path / 'module path' - thread/process job
             script path / "py"          - process job
             command line                - process job
         """
+        make = None
         if isinstance(target, str):
-            make = None
             match type:
                 case TargetType.module:
                     target = FuncTarget(
@@ -163,15 +172,17 @@ class Jober:
                     raise ValueError(f'invalid job target type: "{type}"')
         elif callable(target):
             target = FuncTarget(func = target, args = args, kwargs = kwargs)
-            make = self._get_job_maker_by_mode(mode)
         else:
             raise ValueError(f'invalid job target "{target}"')
 
+        if make is None:
+            make = self._get_job_maker_by_mode(mode)
         return make(target)
 
     def start(self):
         self._sched.start()
-        self._events_thread.start()
+        self._thread_events_thread.start()
+        self._process_events_thread.start()
 
     def stop(self):
         self._sched.stop()
@@ -209,10 +220,17 @@ class Jober:
         from .job.process_job import ProcessJob
         return ProcessJob(target)
 
-    def _collect_events(self):
+    def _collect_events(self, queue):
         while True:
-            event = self._mp_queue.get()
-            print('event', event)
+            event = queue.get()
+            job = self._id_to_job.get(event['job_id'])
+            if not job:
+                logger.warning(
+                    f'got job event for job with id "{event["job_id"]}" '
+                    f'but the job is not known'
+                )
+                continue
+            job._on_run_event(event)
 
 
 class FuncTarget:
@@ -231,8 +249,8 @@ class FuncTarget:
         self.module_path = module_path
         self.module = None
         self.func = func
-        self.args = args or tuple()
-        self.kwargs = kwargs or dict()
+        self.args = args or ()
+        self.kwargs = kwargs or {}
 
         self.type = 'callable'
 
@@ -246,10 +264,7 @@ class FuncTarget:
     def __call__(self):
         if not self.func:
             pass # TODO: load module and set self.func
-        try:
-            self.func(*self.args, **self.kwargs)
-        except:
-            traceback.print_exc()
+        self.func(*self.args, **self.kwargs)
 
 
 class ProcTarget:
@@ -263,6 +278,8 @@ class ProcTarget:
         self.spec = spec
         self.path = path
         self.cmd = cmd
+        self.args = ()
+        self.kwargs = {}
 
         if path:
             self.source = f'[script]{path}'
@@ -337,25 +354,26 @@ class RunEvent:
             'type': event_type,
             'job_id': self.job_id,
             'run_id': self.run_id,
+            'time': time.time(),
             **data,
         }
 
 
-def _init_pool_processes(queue: 'mp.Queue'):
-    global _mp_queue
-    _mp_queue = queue
+def _init_pool(queue: 'queue.Queue|multiprocessing.Queue'):
+    global _events_queue
+    _events_queue = queue
 
 
-def _run_func(job_id, func, kwargs):
+def _run_job(job_id, target):
     run_event = RunEvent(job_id)
 
-    _mp_queue.put(run_event.begin())
+    _events_queue.put(run_event.begin())
     try:
-        func(**kwargs)
+        target()
     except:
-        _mp_queue.put(run_event.error())
+        _events_queue.put(run_event.error())
     else:
-        _mp_queue.put(run_event.done())
+        _events_queue.put(run_event.done())
 
 
-_mp_queue = None
+_events_queue = None

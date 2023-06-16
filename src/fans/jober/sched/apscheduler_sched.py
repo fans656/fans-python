@@ -18,6 +18,7 @@ class Sched(Base):
             *,
             n_threads: int,
             n_processes: int,
+            thread_pool_kwargs = {},
             process_pool_kwargs = {},
             **_,
     ):
@@ -26,6 +27,7 @@ class Sched(Base):
                 'thread': {
                     'class': 'apscheduler.executors.pool:ThreadPoolExecutor',
                     'max_workers': n_threads,
+                    'pool_kwargs': thread_pool_kwargs,
                 },
                 'process': {
                     'class': 'apscheduler.executors.pool:ProcessPoolExecutor',
