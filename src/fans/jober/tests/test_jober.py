@@ -4,7 +4,7 @@ import yaml
 import pytest
 from fans.path import Path
 
-from fans.jober import Jober, make_conf, conf_default
+from fans.jober import Jober, make_conf, conf_default, Target
 
 
 class Test_make_job:
@@ -19,33 +19,27 @@ class Test_make_job:
 
     def test_make_callable_job(self):
         job = self.jober.make_job(lambda: None)
-        assert job.mode == 'thread'
-        assert job.source == f'[callable]{job.target.func}'
+        assert job.mode == conf_default.default_mode
 
     def test_make_callable_proc_job(self):
         job = self.jober.make_job(lambda: None, mode = 'process')
         assert job.mode == 'process'
-        assert job.source == f'[callable]{job.target.func}'
 
     def test_make_module_name_job(self):
-        job = self.jober.make_job('foo.bar:func', type = 'module')
-        assert job.mode == 'thread'
-        assert job.source == '[module]foo.bar:func'
+        job = self.jober.make_job('foo.bar:func')
+        assert job.mode == conf_default.default_mode
 
     def test_make_module_path_job(self):
-        job = self.jober.make_job('/tmp/foo.py:func', type = 'module path')
-        assert job.mode == 'thread'
-        assert job.source == '[module]/tmp/foo.py:func'
+        job = self.jober.make_job('/tmp/foo.py:func')
+        assert job.mode == conf_default.default_mode
 
     def test_make_python_script_job(self):
-        job = self.jober.make_job('/tmp/foo.py', type = 'py')
-        assert job.mode == 'process'
-        assert job.source == '[script]/tmp/foo.py'
-
-    def test_make_command_line_job(self):
         job = self.jober.make_job('/tmp/foo.py')
         assert job.mode == 'process'
-        assert job.source == '[command]/tmp/foo.py'
+
+    def test_make_command_line_job(self):
+        job = self.jober.make_job('ls -lh')
+        assert job.mode == 'process'
 
     def test_make_job_error_cases(self):
         with pytest.raises(ValueError) as e:
@@ -104,6 +98,7 @@ class Test_make_conf:
             assert conf[key] == value
 
 
+# TODO: multiple target, multiple mode
 class Test_runnable_job:
 
     def test_job_status_done(self):
@@ -150,6 +145,60 @@ class Test_process_job:
 class Test_tracked_process_job:
 
     pass
+
+
+class Test_target_make:
+
+    def test_func(self):
+        target = Target.make(sample_func)
+        assert target.type == Target.type_python_callable
+
+    def test_callable(self):
+        instance = sample_instance()
+        target = Target.make(instance)
+        assert target.type == Target.type_python_callable
+
+    def test_module_func(self):
+        target = Target.make('tests.test_jober:sample_func')
+        assert target.type == Target.type_python_module_callable
+
+    def test_script_func(self):
+        target = Target.make(f'{Path(__file__)}:sample_func')
+        assert target.type == Target.type_python_script_callable
+
+    def test_module(self):
+        target = Target.make('tests.test_jober')
+        assert target.type == Target.type_python_module
+
+    def test_script(self):
+        target = Target.make(f'{Path(__file__)}')
+        assert target.type == Target.type_python_script
+
+    def test_cmd_str(self):
+        target = Target.make('date')
+        assert target.type == Target.type_command
+
+    def test_cmd_list(self):
+        target = Target.make(['ls', '-lh'])
+        assert target.type == Target.type_command
+
+    def test_invalid_target_value(self):
+        with pytest.raises(ValueError):
+            Target.make({})
+
+    def test_invalid_str(self):
+        with pytest.raises(ValueError):
+            Target.make('')
+
+
+def sample_func():
+    pass
+
+
+class sample_instance:
+
+    def __call__(self):
+        pass
 
 
 def wait_when_status(target, status, timeout = 1):

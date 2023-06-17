@@ -28,6 +28,10 @@ class Job:
         return self.last_run.status
 
     @property
+    def trace(self) -> str:
+        return self.last_run.trace
+
+    @property
     def finished(self):
         return self.last_run.status in finished_statuses
 
@@ -64,6 +68,7 @@ class Run:
     def __init__(self, run_id):
         self.id = run_id
         self.status = 'ready'
+        self.trace = None
 
 
 class DummyRun(Run):

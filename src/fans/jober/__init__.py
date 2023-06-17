@@ -20,20 +20,23 @@ Query <Jober>:
 
 Query <Job>:
 
-    .last_run -> Run - Get last run instance of this job
-    .runs -> List[Run] - Get a list of known runs of this job
+    .last_run: Run - Get last run instance of this job
+    .runs: List[Run] - Get a list of known runs of this job
 
-    # following will delegate to job's last run
-    .status -> Status
+    # following attributes delegate to job's last run
+    .status
+    .finished
     .async_iter_output -> ...
 
 Query <Run>:
 
-    .status         - Ready|Running|Done|Error
-        Ready       - job has not run yet
-        Running     - job is running
-        Done        - job has finished in success
-        Error       - job has finished in error
+    .status: str - Current status of job's one run
+        'ready'     - not run yet
+        'running'   - is running
+        'done'      - finished with success
+        'error'     - finished with error
+
+    .finished: bool - Whether job run finished (with success or error)
 
     .async_iter_output -> ... - Get an async generator to iter job's output
 
@@ -47,6 +50,7 @@ Example jobs:
 """
 import time
 import uuid
+import shlex
 import queue
 import traceback
 import threading
@@ -63,20 +67,6 @@ from .sched import make_sched
 
 
 logger = get_logger(__name__)
-
-
-class TargetType:
-
-    module = 'module'
-    module_path = 'module path'
-    py = 'py'
-    command = 'command'
-
-
-class ExecutionMode:
-
-    thread = 'thread'
-    process = 'process'
 
 
 class Jober:
@@ -128,11 +118,10 @@ class Jober:
     def make_job(
             self,
             target: Union[str, Callable],
-            args: tuple = None,
-            kwargs: dict = None,
+            args: tuple = (),
+            kwargs: dict = {},
             *,
-            type: TargetType = TargetType.command,
-            mode: ExecutionMode = None,
+            mode: str = None,
             sched: str = None,
     ) -> 'Job':
         """
@@ -141,41 +130,13 @@ class Jober:
         target: Union[str, Callable]
         args: tuple = None
         kwargs: dict = None
-        type: str = 'command'
-        mode: str = None
+        mode: str = None - 'thread'|'process'
         sched: str = None
-
-        Following type of target supported:
-
-            Callable                    - thread/process job
-            module name / 'module'      - thread/process job
-            module path / 'module path' - thread/process job
-            script path / "py"          - process job
-            command line                - process job
         """
-        make = None
-        if isinstance(target, str):
-            match type:
-                case TargetType.module:
-                    target = FuncTarget(
-                        target, args = args, kwargs = kwargs, module_name = target)
-                case TargetType.module_path:
-                    target = FuncTarget(
-                        target, args = args, kwargs = kwargs, module_path = target)
-                case TargetType.py:
-                    target = ProcTarget(target, path = target)
-                    make = self._make_process_job
-                case TargetType.command:
-                    target = ProcTarget(target, cmd = target)
-                    make = self._make_process_job
-                case _:
-                    raise ValueError(f'invalid job target type: "{type}"')
-        elif callable(target):
-            target = FuncTarget(func = target, args = args, kwargs = kwargs)
+        target = Target.make(target, args, kwargs)
+        if target.type == Target.type_command:
+            make = self._make_process_job
         else:
-            raise ValueError(f'invalid job target "{target}"')
-
-        if make is None:
             make = self._get_job_maker_by_mode(mode)
         return make(target)
 
@@ -203,14 +164,18 @@ class Jober:
                 continue
             yield job
 
-    def _get_job_maker_by_mode(self, mode: ExecutionMode):
+    def _get_job_maker_by_mode(self, mode: str):
         match mode:
-            case ExecutionMode.process:
+            case 'process':
                 return self._make_process_job
-            case ExecutionMode.thread:
+            case 'thread':
                 return self._make_thread_job
             case _:
-                return self._make_thread_job
+                return (
+                    conf_default.default_mode == 'thread' and
+                    self._make_thread_job or
+                    self._make_process_job
+                )
 
     def _make_thread_job(self, target: 'FuncTarget') -> 'Job':
         from .job.thread_job import ThreadJob
@@ -231,64 +196,6 @@ class Jober:
                 )
                 continue
             job._on_run_event(event)
-
-
-class FuncTarget:
-
-    def __init__(
-            self,
-            spec = None,
-            args = None,
-            kwargs = None,
-            module_name = None,
-            module_path = None,
-            func = None,
-    ):
-        self.spec = spec
-        self.module_name = module_name
-        self.module_path = module_path
-        self.module = None
-        self.func = func
-        self.args = args or ()
-        self.kwargs = kwargs or {}
-
-        self.type = 'callable'
-
-        if module_name or module_path:
-            self.source = f'[module]{spec}'
-        elif func:
-            self.source = f'[callable]{func}'
-        else:
-            raise ValueError(f'invalid FuncTarget spec: "{spec}"')
-
-    def __call__(self):
-        if not self.func:
-            pass # TODO: load module and set self.func
-        self.func(*self.args, **self.kwargs)
-
-
-class ProcTarget:
-
-    def __init__(
-            self,
-            spec = None,
-            path = None,
-            cmd = None,
-    ):
-        self.spec = spec
-        self.path = path
-        self.cmd = cmd
-        self.args = ()
-        self.kwargs = {}
-
-        if path:
-            self.source = f'[script]{path}'
-            self.type = 'script'
-        elif cmd:
-            self.source = f'[command]{cmd}'
-            self.type = 'command'
-        else:
-            raise ValueError(f'invalid ProcTarget spec: "{spec}"')
 
 
 def make_conf(
@@ -374,6 +281,76 @@ def _run_job(job_id, target):
         _events_queue.put(run_event.error())
     else:
         _events_queue.put(run_event.done())
+
+
+class Target:
+
+    type_command = 'command'
+    type_python_callable = 'python_callable'
+    type_python_script_callable = 'python_script_callable'
+    type_python_module_callable = 'python_module_callable'
+    type_python_script = 'python_script'
+    type_python_module = 'python_module'
+
+    @classmethod
+    def make(
+            cls,
+            source: Union[Callable, str, List[str]],
+            args = (),
+            kwargs  = {},
+    ):
+        if callable(source):
+            target_type = cls.type_python_callable
+        elif isinstance(source, str):
+            parts = shlex.split(source)
+            if not parts:
+                raise ValueError(f'invalid source "{source}"')
+            target_type = cls.type_command
+            if len(parts) == 1:
+                if ':' in source:
+                    domain_str, func_str = source.split(':')
+                    if domain_str.endswith('.py'):
+                        target_type = cls.type_python_script_callable
+                    else:
+                        target_type = cls.type_python_module_callable
+                elif source.endswith('.py'):
+                    target_type = cls.type_python_script
+                elif '.' in source:
+                    target_type = cls.type_python_module
+        elif isinstance(source, list):
+            target_type = 'command'
+        else:
+            raise ValueError(f'invalid source "{source}"')
+
+        return cls(target_type, source, args, kwargs)
+
+    def __init__(self, type, source, args, kwargs):
+        self.type = type
+        self.source = source
+        self.args = args
+        self.kwargs = kwargs
+
+    def __call__(self):
+        match self.type:
+            case self.type_python_callable:
+                self.source(*self.args, **self.kwargs)
+            case self.type_python_script_callable:
+                pass
+            case self.type_python_module_callable:
+                pass
+            case self.type_python_script:
+                pass
+            case self.type_python_module:
+                pass
+
+    def _load_python_script_callable(self):
+        import runpy
+
+    def _load_python_module_callable(self):
+        import importlib.util
+        spec = importlib.util.find_spec(name)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
 
 
 _events_queue = None
