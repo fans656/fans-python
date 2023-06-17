@@ -4,7 +4,7 @@ import yaml
 import pytest
 from fans.path import Path
 
-from fans.jober import Jober, make_conf, conf_default, Target
+from fans.jober.jober import Jober, make_conf, conf_default
 
 
 class Test_make_job:
@@ -145,60 +145,6 @@ class Test_process_job:
 class Test_tracked_process_job:
 
     pass
-
-
-class Test_target_make:
-
-    def test_func(self):
-        target = Target.make(sample_func)
-        assert target.type == Target.type_python_callable
-
-    def test_callable(self):
-        instance = sample_instance()
-        target = Target.make(instance)
-        assert target.type == Target.type_python_callable
-
-    def test_module_func(self):
-        target = Target.make('tests.test_jober:sample_func')
-        assert target.type == Target.type_python_module_callable
-
-    def test_script_func(self):
-        target = Target.make(f'{Path(__file__)}:sample_func')
-        assert target.type == Target.type_python_script_callable
-
-    def test_module(self):
-        target = Target.make('tests.test_jober')
-        assert target.type == Target.type_python_module
-
-    def test_script(self):
-        target = Target.make(f'{Path(__file__)}')
-        assert target.type == Target.type_python_script
-
-    def test_cmd_str(self):
-        target = Target.make('date')
-        assert target.type == Target.type_command
-
-    def test_cmd_list(self):
-        target = Target.make(['ls', '-lh'])
-        assert target.type == Target.type_command
-
-    def test_invalid_target_value(self):
-        with pytest.raises(ValueError):
-            Target.make({})
-
-    def test_invalid_str(self):
-        with pytest.raises(ValueError):
-            Target.make('')
-
-
-def sample_func():
-    pass
-
-
-class sample_instance:
-
-    def __call__(self):
-        pass
 
 
 def wait_when_status(target, status, timeout = 1):

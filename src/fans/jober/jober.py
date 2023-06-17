@@ -1,188 +1,238 @@
-import json
-import pathlib
+import time
+import uuid
+import queue
+import traceback
 import threading
-from typing import List, Union, Optional
+import functools
+import multiprocessing as mp
+from pathlib import Path
+from enum import Enum
+from typing import Union, Callable, List, Iterable
 
-import pytz
-from fans.path import Path
+from fans.bunch import bunch
 from fans.logger import get_logger
-from fans.pubsub import PubSub
-from fans.datelib import now
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.date import DateTrigger
-from apscheduler.triggers.interval import IntervalTrigger
-from apscheduler.events import EVENT_JOB_REMOVED
 
-from . import errors
-from .job import Job
-from .utils import load_spec
+from .sched import make_sched
+from .target import Target, TargetType
 
 
-SpecSource = Optional[Union[dict, pathlib.Path, str]]
-RunID = str
 logger = get_logger(__name__)
 
 
 class Jober:
-    """
-    Instance to manage all jobs.
-    """
 
-    spec: SpecSource = None # specify the jober spec
-    _instance: 'Jober' = None
+    def __init__(self, **conf_spec):
+        """
+        See `make_conf` for args doc
+        """
+        self.conf = conf = make_conf(**conf_spec)
 
-    @classmethod
-    def get_instance(cls, spec: SpecSource = None):
-        if cls._instance is None:
-            cls._instance = cls(spec or cls.spec)
-        return cls._instance
+        self.root = conf.root
+        self.n_threads = conf.n_threads
 
-    def __init__(self, spec: SpecSource = None):
-        self._jobs = []
         self._id_to_job = {}
-        self._sched_job_id_to_job = {}
+        self._mp_queue = mp.Queue()
+        self._th_queue = queue.Queue()
 
-        self.pubsub = PubSub()
-
-        self.sched = BackgroundScheduler(
-            executors = {
-                'default': {
-                    'class': 'apscheduler.executors.pool:ThreadPoolExecutor',
-                    'max_workers': 20, # TODO: changable
-                },
+        self._sched = make_sched(**{
+            **conf,
+            'thread_pool_kwargs': {
+                'initializer': _init_pool,
+                'initargs': (self._th_queue,),
             },
-            timezone = pytz.timezone('Asia/Shanghai'),
-        )
-        self.sched.add_listener(self._on_sched_event, EVENT_JOB_REMOVED)
+            'process_pool_kwargs': {
+                'initializer': _init_pool,
+                'initargs': (self._mp_queue,),
+            },
+        })
 
-        self.spec = spec = load_spec(spec)
-        self.context = spec.get('context', {})
-        for job_spec in spec.get('jobs', []):
-            self.make_and_add_job(job_spec)
+        self._process_events_thread = threading.Thread(
+            target = functools.partial(self._collect_events, self._mp_queue), daemon = True)
 
-    def get_job_by_id(self, id: str) -> Optional[Job]:
-        """
-        Get a job by its ID.
+        self._thread_events_thread = threading.Thread(
+            target = functools.partial(self._collect_events, self._th_queue), daemon = True)
 
-        Returns:
-            The job or None if no job exists for given ID.
-        """
-        return self._id_to_job.get(id)
+    def run_job(self, *args, **kwargs) -> 'Job':
+        job = self.add_job(*args, **kwargs)
+        self._sched.run_singleshot(_run_job, (job.id, job.target), mode = job.mode)
+        return job
 
-    @property
-    def jobs(self) -> List[Job]:
+    def add_job(self, *args, **kwargs) -> 'Job':
         """
-        Get all existing jobs.
+        Make a job and add to jober.
         """
-        return self._jobs
-
-    def run_job(self, id: str, args: str = None) -> RunID:
-        """
-        Run a job on demand.
-
-        Args:
-            id - the job ID.
-            args - arguments for this job run.
-
-        Returns:
-            RunID of this run.
-        """
-        job = self.get_job_by_id(id)
-        if not job:
-            raise errors.NotFound(f'"{id}" not found')
-        # TODO: passing args
-        self._schedule_job(job, DateTrigger())
-
-    def stop_job(self, id: str, force: bool = False):
-        job = self.get_job_by_id(id)
-        if not job:
-            raise errors.NotFound(f'"{id}" not found')
-        if force:
-            job.terminate()
-        else:
-            job.kill()
-
-    def make_job(self, spec: dict) -> Job:
-        """
-        Make a new job given the job spec.
-        """
-        return Job(
-            name = spec.get('name'),
-            id = spec.get('id'),
-            cmd = spec.get('cmd'),
-            script = spec.get('script'),
-            module = spec.get('module'),
-            args = spec.get('args'),
-            cwd = spec.get('cwd'),
-            env = spec.get('env'),
-            sched = spec.get('sched'),
-            retry = spec.get('retry'),
-            config = self.spec.get('job.config'),
-            on_event = self.pubsub.publish,
-            on_retry = self._retry_job,
-        )
-
-    def add_job(self, job: Job):
-        """
-        Add a new job to jober.
-        """
-        if job.id in self._id_to_job:
-            raise errors.Conflict(f'"{job.name}" already exists')
-        self._jobs.append(job)
+        job = self.make_job(*args, **kwargs)
         self._id_to_job[job.id] = job
-        self._maybe_schedule_job(job)
+        return job
 
-    def make_and_add_job(self, spec: dict):
+    # TODO: mode should not be in Job
+    # TODO: sched can be separated out from Job?
+    def make_job(
+            self,
+            target: Union[str, Callable],
+            args: tuple = (),
+            kwargs: dict = {},
+            *,
+            mode: str = None,
+            sched: str = None,
+    ) -> 'Job':
         """
-        Make and add job to jober given a job spec.
+        Make a job without adding to jober.
+
+        target: Union[str, Callable]
+        args: tuple = None
+        kwargs: dict = None
+        mode: str = None - 'thread'|'process'
+        sched: str = None
         """
-        self.add_job(self.make_job(spec))
+        target = Target.make(target, args, kwargs)
+        if target.type == TargetType.command:
+            make = self._make_process_job
+        else:
+            make = self._get_job_maker_by_mode(mode)
+        return make(target)
 
     def start(self):
-        """
-        Start the jober.
-        """
-        self.sched.start()
+        self._sched.start()
+        self._thread_events_thread.start()
+        self._process_events_thread.start()
 
     def stop(self):
-        """
-        Stop the jober.
-        """
-        self.sched.shutdown()
+        self._sched.stop()
 
-    def _maybe_schedule_job(self, job):
-        sched_spec = job.sched
-        if not sched_spec:
-            return
-        if isinstance(sched_spec, int):
-            seconds = sched_spec
-            if seconds > 0:
-                self._schedule_job(job, DateTrigger()) # first run
-            self._schedule_job(job, IntervalTrigger(seconds = seconds))
-        # TODO: other triggers
-        else:
-            logger.warning(f'unsupported sched: {repr(sched_spec)}')
+    def get_jobs(self, *args, **kwargs) -> List['Job']:
+        return list(self.iter_jobs(*args, **kwargs))
 
-    def _retry_job(self, job, run):
-        date = now().offset(seconds = job.retry['delay']).to_native()
-        context = run.context or {'remaining_retry': job.retry.get('times')}
-        func = lambda: job(context = {
-            **context,
-            'remaining_retry': context.get('remaining_retry', 0) - 1,
-        })
-        self._schedule_job(job, DateTrigger(date), func = func)
+    def iter_jobs(
+            self,
+            status: str = None,
+            mode: str = None,
+    ) -> Iterable['Job']:
+        jobs = self._id_to_job.values()
+        for job in jobs:
+            if mode and job.mode != mode:
+                continue
+            if status and job.status != status:
+                continue
+            yield job
 
-    def _schedule_job(self, job, trigger, func = None):
-        func = func or job
-        sched_job = self.sched.add_job(func, trigger)
-        job.sched_job_id_to_sched_job[sched_job.id] = sched_job
-        self._sched_job_id_to_job[sched_job.id] = job
+    def _get_job_maker_by_mode(self, mode: str):
+        match mode:
+            case 'process':
+                return self._make_process_job
+            case 'thread':
+                return self._make_thread_job
+            case _:
+                return (
+                    conf_default.default_mode == 'thread' and
+                    self._make_thread_job or
+                    self._make_process_job
+                )
 
-    def _on_sched_event(self, event):
-        if event.code == EVENT_JOB_REMOVED:
-            job = self._sched_job_id_to_job.get(event.job_id)
-            del job.sched_job_id_to_sched_job[event.job_id]
-            del self._sched_job_id_to_job[event.job_id]
-        else:
-            logger.warning(f'unhandled sched event {event}')
+    def _make_thread_job(self, target: 'FuncTarget') -> 'Job':
+        from .job.thread_job import ThreadJob
+        return ThreadJob(target)
+
+    def _make_process_job(self, target: 'ProcTarget') -> 'Job':
+        from .job.process_job import ProcessJob
+        return ProcessJob(target)
+
+    def _collect_events(self, queue):
+        while True:
+            event = queue.get()
+            job = self._id_to_job.get(event['job_id'])
+            if not job:
+                logger.warning(
+                    f'got job event for job with id "{event["job_id"]}" '
+                    f'but the job is not known'
+                )
+                continue
+            job._on_run_event(event)
+
+
+def make_conf(
+        conf_path: str = ...,
+        root: str = ...,
+        default_mode: str = ...,
+        n_threads: int = ...,
+        n_processes: int = ...,
+):
+    """
+    conf_path: str - config yaml path, read config dict from the yaml content
+    root: str - root directory path, intermediate files will be store here
+    default_mode: str - default execution mode to use ('thread'/'process')
+    n_threads: int - number of threads to use for thread pool
+    n_processes: int - number of processes to use for process pool
+    """
+    conf = {}
+
+    if conf_path is not ...:
+        import yaml
+        try:
+            with Path(conf_path).open() as f:
+                conf = yaml.safe_load(f)
+                assert isinstance(conf, dict)
+        except Exception as exc:
+            logger.warning(f'error reading conf from "{conf_path}": {exc}')
+            conf = {}
+
+    eor = lambda val, name: conf.get(name) if val is ... else val
+
+    return bunch(
+        root = eor(root, 'root'),
+        default_mode = eor(default_mode, 'default_mode') or conf_default.default_mode,
+        n_threads = eor(n_threads, 'n_threads') or conf_default.n_threads,
+        n_processes = eor(n_processes, 'n_processes') or conf_default.n_processes,
+    )
+
+
+class conf_default:
+
+    default_mode = 'process'
+    n_threads = 4
+    n_processes = 4
+
+
+class RunEvent:
+
+    def __init__(self, job_id):
+        self.job_id = job_id
+        self.run_id = uuid.uuid4().hex
+
+    def begin(self):
+        return self._event('job_run_begin')
+
+    def done(self):
+        return self._event('job_run_done')
+
+    def error(self):
+        return self._event('job_run_error', trace = traceback.format_exc())
+
+    def _event(self, event_type, **data):
+        return {
+            'type': event_type,
+            'job_id': self.job_id,
+            'run_id': self.run_id,
+            'time': time.time(),
+            **data,
+        }
+
+
+def _init_pool(queue: 'queue.Queue|multiprocessing.Queue'):
+    global _events_queue
+    _events_queue = queue
+
+
+def _run_job(job_id, target):
+    run_event = RunEvent(job_id)
+
+    _events_queue.put(run_event.begin())
+    try:
+        target()
+    except:
+        _events_queue.put(run_event.error())
+    else:
+        _events_queue.put(run_event.done())
+
+
+_events_queue = None
