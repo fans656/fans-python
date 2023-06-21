@@ -60,4 +60,4 @@ def get_executor_by_mode(mode: str):
         case 'process':
             return 'process'
         case _:
-            return 'process'
+            return 'thread'

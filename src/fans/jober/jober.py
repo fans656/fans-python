@@ -14,6 +14,7 @@ from fans.logger import get_logger
 
 from .sched import make_sched
 from .target import Target, TargetType
+from . import util
 
 
 logger = get_logger(__name__)
@@ -54,7 +55,11 @@ class Jober:
 
     def run_job(self, *args, **kwargs) -> 'Job':
         job = self.add_job(*args, **kwargs)
-        self._sched.run_singleshot(_run_job, (job.id, job.target), mode = job.mode)
+        self._sched.run_singleshot(
+            _run_job,
+            (job.id, job.target, self._th_queue),
+            mode = job.mode,
+        )
         return job
 
     def add_job(self, *args, **kwargs) -> 'Job':
@@ -86,7 +91,7 @@ class Jober:
         sched: str = None
         """
         target = Target.make(target, args, kwargs)
-        if target.type == TargetType.command:
+        if target.type in TargetType.command:
             make = self._make_process_job
         else:
             make = self._get_job_maker_by_mode(mode)
@@ -96,9 +101,11 @@ class Jober:
         self._sched.start()
         self._thread_events_thread.start()
         self._process_events_thread.start()
+        util.enable_proxy()
 
     def stop(self):
         self._sched.stop()
+        util.disable_proxy()
 
     def get_jobs(self, *args, **kwargs) -> List['Job']:
         return list(self.iter_jobs(*args, **kwargs))
@@ -188,7 +195,7 @@ def make_conf(
 
 class conf_default:
 
-    default_mode = 'process'
+    default_mode = 'thread'
     n_threads = 4
     n_processes = 4
 
@@ -223,8 +230,11 @@ def _init_pool(queue: 'queue.Queue|multiprocessing.Queue'):
     _events_queue = queue
 
 
-def _run_job(job_id, target):
+def _run_job(job_id, target, thread_out_queue):
     run_event = RunEvent(job_id)
+
+    # TODO: only redirect for thread job
+    util.redirect(queue = thread_out_queue, job_id = job_id, run_id = run_event.run_id)
 
     _events_queue.put(run_event.begin())
     try:

@@ -35,7 +35,7 @@ class Test_make_job:
 
     def test_make_python_script_job(self):
         job = self.jober.make_job('/tmp/foo.py')
-        assert job.mode == 'process'
+        assert job.mode == conf_default.default_mode
 
     def test_make_command_line_job(self):
         job = self.jober.make_job('ls -lh')

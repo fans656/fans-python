@@ -1,4 +1,6 @@
 import uuid
+import queue
+import asyncio
 from abc import abstractmethod
 
 
@@ -16,6 +18,9 @@ class Job:
         self._id_to_run = {}
         self._last_run_id = None
         self._max_run_time = 0
+
+        # TODO: limit output size
+        self._output_queue = queue.Queue()
 
         self.init()
 
@@ -43,8 +48,40 @@ class Job:
     def source(self) -> str:
         return self.target.source
 
+    # TODO: delegate to run
+    def iter_output(self, timeout = None):
+        cur = ''
+        while True:
+            out = self._output_queue.get()
+            if not out:
+                break
+            cur += out
+            if cur.endswith('\n'):
+                yield cur[:-1]
+                cur = ''
+
+    # TODO: delegate to run
+    async def iter_output_async(self, timeout = None):
+        cur = ''
+        while True:
+            try:
+                out = self._output_queue.get(False)
+            except queue.Empty:
+                await asyncio.sleep(0.001)
+            else:
+                if not out:
+                    break
+                cur += out
+                if cur.endswith('\n'):
+                    yield cur[:-1]
+                    cur = ''
+
     def _on_run_event(self, event):
         run_id = event['run_id']
+
+        if event['type'] == 'output':
+            self._output_queue.put(event['content'])
+            return
 
         if event['time'] > self._max_run_time:
             self._last_run_id = run_id
@@ -58,9 +95,11 @@ class Job:
                 run.status = 'running'
             case 'job_run_done':
                 run.status = 'done'
+                self._output_queue.put(None)
             case 'job_run_error':
                 run.status = 'error'
                 run.trace = event.get('trace')
+                self._output_queue.put(None)
 
 
 class Run:

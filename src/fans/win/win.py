@@ -56,8 +56,8 @@ if __name__ == '__main__':
                     print(data['content'].rstrip())
                 elif event_type == 'done':
                     break
-                elif event_type == 'exception':
-                    print(data['trace'])
+                elif event_type == 'trace':
+                    print(data['content'].rstrip())
                     break
                 else:
                     print(f'unknown event: {data}')
