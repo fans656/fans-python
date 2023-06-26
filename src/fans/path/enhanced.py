@@ -3,6 +3,8 @@ import types
 import pathlib
 from typing import Callable
 
+from .meta import Meta
+
 
 class Path(type(pathlib.Path())):
 
@@ -25,7 +27,6 @@ class Path(type(pathlib.Path())):
             self.unlink()
 
     def as_meta(self, **kwargs):
-        from .meta import Meta
         return Meta(self, **kwargs)
 
     @property

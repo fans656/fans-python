@@ -25,9 +25,14 @@ class Meta(dict):
         self.before_save = before_save
 
     def save(self, update: dict = None):
+        if not self.loaded:
+            self.load()
         meta = {**self, **(update or {})}
         self.before_save(meta)
         self.update(meta)
+        self._save()
+
+    def _save(self):
         self.path.save(
             self,
             hint = 'json',
@@ -40,7 +45,7 @@ class Meta(dict):
             self.update(self.path.load(hint = 'json'))
         except:
             self.update(self.default())
-            self.save()
+            self._save()
         self.loaded = True
         return self
 

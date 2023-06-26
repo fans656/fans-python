@@ -1,7 +1,5 @@
-import time
 import uuid
 import queue
-import traceback
 import threading
 import functools
 import multiprocessing as mp
@@ -15,6 +13,8 @@ from fans.logger import get_logger
 from .sched import make_sched
 from .target import Target, TargetType
 from . import util
+from .job.job import Run
+from .event import RunEventer
 
 
 logger = get_logger(__name__)
@@ -53,14 +53,23 @@ class Jober:
         self._thread_events_thread = threading.Thread(
             target = functools.partial(self._collect_events, self._th_queue), daemon = True)
 
-    def run_job(self, *args, **kwargs) -> 'Job':
+    def run_job(self, *args, **kwargs) -> 'Run':
         job = self.add_job(*args, **kwargs)
+        run = job.new_run()
+        # TODO: other types of sched instead of just singleshot
         self._sched.run_singleshot(
             _run_job,
-            (job.id, job.target, self._th_queue),
+            kwargs = {
+                'target': job.target,
+                'job_id': run.job_id,
+                'run_id': run.run_id,
+                'prepare': job.mode == 'thread' and (
+                    lambda: _prepare_thread_run(self._th_queue, run.job_id, run.run_id)
+                ) or None,
+            },
             mode = job.mode,
         )
-        return job
+        return run
 
     def add_job(self, *args, **kwargs) -> 'Job':
         """
@@ -147,10 +156,11 @@ class Jober:
     def _collect_events(self, queue):
         while True:
             event = queue.get()
-            job = self._id_to_job.get(event['job_id'])
+            job_id = event['job_id']
+            job = self._id_to_job.get(job_id)
             if not job:
                 logger.warning(
-                    f'got job event for job with id "{event["job_id"]}" '
+                    f'got job event for job with id "{job_id}" '
                     f'but the job is not known'
                 )
                 continue
@@ -200,49 +210,26 @@ class conf_default:
     n_processes = 4
 
 
-class RunEvent:
-
-    def __init__(self, job_id):
-        self.job_id = job_id
-        self.run_id = uuid.uuid4().hex
-
-    def begin(self):
-        return self._event('job_run_begin')
-
-    def done(self):
-        return self._event('job_run_done')
-
-    def error(self):
-        return self._event('job_run_error', trace = traceback.format_exc())
-
-    def _event(self, event_type, **data):
-        return {
-            'type': event_type,
-            'job_id': self.job_id,
-            'run_id': self.run_id,
-            'time': time.time(),
-            **data,
-        }
-
-
 def _init_pool(queue: 'queue.Queue|multiprocessing.Queue'):
     global _events_queue
     _events_queue = queue
 
 
-def _run_job(job_id, target, thread_out_queue):
-    run_event = RunEvent(job_id)
-
-    # TODO: only redirect for thread job
-    util.redirect(queue = thread_out_queue, job_id = job_id, run_id = run_event.run_id)
-
-    _events_queue.put(run_event.begin())
+def _run_job(*, target, job_id, run_id, prepare):
+    eventer = RunEventer(job_id = job_id, run_id = run_id)
     try:
+        _events_queue.put(eventer.begin())
+        if prepare:
+            prepare()
         target()
     except:
-        _events_queue.put(run_event.error())
+        _events_queue.put(eventer.error())
     else:
-        _events_queue.put(run_event.done())
+        _events_queue.put(eventer.done())
+
+
+def _prepare_thread_run(thread_out_queue, job_id, run_id):
+    util.redirect(queue = thread_out_queue, job_id = job_id, run_id = run_id)
 
 
 _events_queue = None

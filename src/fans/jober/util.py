@@ -3,6 +3,8 @@ import sys
 import werkzeug.local
 import threading
 
+from .event import RunEventer
+
 
 enabled = False
 thread_proxies = {}
@@ -41,8 +43,7 @@ def redirect(enable = True, queue = None, job_id = None, run_id = None):
         enable_proxy()
     ident = threading.get_ident()
     output = Output()
-    output.job_id = job_id
-    output.run_id = run_id
+    output.run_eventer = RunEventer(job_id = job_id, run_id = run_id)
     output.queue = queue
     thread_proxies[ident] = output
     return thread_proxies[ident]
@@ -52,10 +53,5 @@ class Output(io.StringIO):
 
     def write(self, string):
         super().write(string)
-        if self.queue and self.job_id:
-            self.queue.put({
-                'type': 'output',
-                'job_id': self.job_id,
-                'run_id': self.run_id,
-                'content': string,
-            })
+        if self.queue and self.run_eventer:
+            self.queue.put(self.run_eventer.output(string))
