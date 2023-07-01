@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import logging
 import traceback
@@ -32,12 +33,8 @@ def setup_logging():
     root = logging.root
     if root.level > logging.INFO:
         root.setLevel(logging.INFO)
-    root.handlers.clear()
 
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s | %(message)s')
-    handler.setFormatter(formatter)
-    root.addHandler(handler)
+    Logger.reset_handlers()
 
     run_path = os.environ.get('LOGDIR')
     if run_path:
@@ -116,6 +113,17 @@ context_manager = ContextManager()
 
 
 class Logger:
+
+    # TODO: not reset, but replace (or add) a stream handler using latest sys.stderr
+    # to support thread output capture
+    @staticmethod
+    def reset_handlers():
+        root = logging.root
+        root.handlers.clear()
+        handler = logging.StreamHandler(sys.stderr)
+        formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s | %(message)s')
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
 
     def __init__(self, logger):
         self.logger = logger

@@ -22,6 +22,13 @@ class Node:
         self._children = None
 
     @property
+    def root(self):
+        cur = self.parent
+        while cur.parent:
+            cur = cur.parent
+        return cur
+
+    @property
     @vectorized
     def children(self):
         for child in self._children:
