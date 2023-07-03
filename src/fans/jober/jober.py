@@ -1,5 +1,6 @@
 import uuid
 import queue
+import traceback
 import threading
 import functools
 import multiprocessing as mp
@@ -53,6 +54,8 @@ class Jober:
         self._thread_events_thread = threading.Thread(
             target = functools.partial(self._collect_events, self._th_queue), daemon = True)
 
+        self._listeners = set()
+
     def run_job(self, *args, **kwargs) -> 'Run':
         job = self.add_job(*args, **kwargs)
         run = job.new_run()
@@ -64,7 +67,10 @@ class Jober:
                 'job_id': run.job_id,
                 'run_id': run.run_id,
                 'prepare': job.mode == 'thread' and (
-                    lambda: _prepare_thread_run(self._th_queue, run.job_id, run.run_id)
+                    lambda: _prepare_thread_run(
+                        self._th_queue, run.job_id, run.run_id,
+                        module_logging_levels = self._sched.module_logging_levels,
+                    )
                 ) or None,
             },
             mode = job.mode,
@@ -87,6 +93,8 @@ class Jober:
             args: tuple = (),
             kwargs: dict = {},
             *,
+            name: str = None,
+            extra: any = None,
             mode: str = None,
             sched: str = None,
     ) -> 'Job':
@@ -104,7 +112,11 @@ class Jober:
             make = self._make_process_job
         else:
             make = self._get_job_maker_by_mode(mode)
-        return make(target)
+        return make(
+            target,
+            name = name,
+            extra = extra,
+        )
 
     def start(self):
         self._sched.start()
@@ -115,6 +127,9 @@ class Jober:
     def stop(self):
         self._sched.stop()
         util.disable_proxy()
+
+    def get_job(self, job_id: str) -> 'Job':
+        return self._id_to_job.get(job_id)
 
     def get_jobs(self, *args, **kwargs) -> List['Job']:
         return list(self.iter_jobs(*args, **kwargs))
@@ -132,6 +147,12 @@ class Jober:
                 continue
             yield job
 
+    def add_listener(self, callback):
+        self._listeners.add(callback)
+
+    def remove_listener(self, callback):
+        self._listeners.discard(callback)
+
     def _get_job_maker_by_mode(self, mode: str):
         match mode:
             case 'process':
@@ -145,13 +166,13 @@ class Jober:
                     self._make_process_job
                 )
 
-    def _make_thread_job(self, target: 'FuncTarget') -> 'Job':
+    def _make_thread_job(self, target: 'FuncTarget', *args, **kwargs) -> 'Job':
         from .job.thread_job import ThreadJob
-        return ThreadJob(target)
+        return ThreadJob(target, *args, **kwargs)
 
-    def _make_process_job(self, target: 'ProcTarget') -> 'Job':
+    def _make_process_job(self, target: 'ProcTarget', *args, **kwargs) -> 'Job':
         from .job.process_job import ProcessJob
-        return ProcessJob(target)
+        return ProcessJob(target, *args, **kwargs)
 
     def _collect_events(self, queue):
         while True:
@@ -165,6 +186,12 @@ class Jober:
                 )
                 continue
             job._on_run_event(event)
+
+            for listener in self._listeners:
+                try:
+                    listener(event)
+                except:
+                    traceback.print_exc()
 
 
 def make_conf(
@@ -228,8 +255,16 @@ def _run_job(*, target, job_id, run_id, prepare):
         _events_queue.put(eventer.done())
 
 
-def _prepare_thread_run(thread_out_queue, job_id, run_id):
-    util.redirect(queue = thread_out_queue, job_id = job_id, run_id = run_id)
+def _prepare_thread_run(
+        thread_out_queue, job_id, run_id,
+        module_logging_levels = {},
+):
+    util.redirect(
+        queue = thread_out_queue,
+        job_id = job_id,
+        run_id = run_id,
+        module_logging_levels = module_logging_levels,
+    )
 
 
 _events_queue = None

@@ -28,7 +28,7 @@ def set_log_level(level):
     logging.root.setLevel(level)
 
 
-def setup_logging():
+def setup_logging(module_levels = {}):
     global _setup_done
     root = logging.root
     if root.level > logging.INFO:
@@ -117,8 +117,13 @@ class Logger:
     # TODO: not reset, but replace (or add) a stream handler using latest sys.stderr
     # to support thread output capture
     @staticmethod
-    def reset_handlers():
+    def reset_handlers(module_levels = {}):
         root = logging.root
+
+        for name, level in module_levels.items():
+            logger = logging.getLogger(name)
+            logger.setLevel(level)
+
         root.handlers.clear()
         handler = logging.StreamHandler(sys.stderr)
         formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s | %(message)s')

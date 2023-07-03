@@ -40,7 +40,13 @@ def _get_proxy(obj):
     return lambda: thread_proxies.get(threading.get_ident(), obj)
 
 
-def redirect(enable = True, queue = None, job_id = None, run_id = None):
+def redirect(
+        enable = True,
+        queue = None,
+        job_id = None,
+        run_id = None,
+        module_logging_levels = {},
+):
     if enable:
         enable_proxy()
     ident = threading.get_ident()
@@ -48,7 +54,7 @@ def redirect(enable = True, queue = None, job_id = None, run_id = None):
     output.run_eventer = RunEventer(job_id = job_id, run_id = run_id)
     output.queue = queue
     thread_proxies[ident] = output
-    Logger.reset_handlers()
+    Logger.reset_handlers(module_levels = module_logging_levels)
     return thread_proxies[ident]
 
 

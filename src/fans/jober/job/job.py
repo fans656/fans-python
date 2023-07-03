@@ -18,9 +18,16 @@ class Job:
 
     mode = None
 
-    def __init__(self, target: any):
+    def __init__(
+            self,
+            target: any,
+            name: str = None,
+            extra: any = None,
+    ):
         self.target = target
         self.id = uuid.uuid4().hex
+        self.name = name
+        self.extra = extra
 
         self._id_to_run = {}
         self._last_run_id = None

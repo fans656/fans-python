@@ -1,3 +1,4 @@
+import logging
 import threading
 import multiprocessing as mp
 
@@ -11,7 +12,9 @@ from apscheduler.events import EVENT_JOB_REMOVED
 from .base import Base
 
 
-class Sched(Base):
+class ApschedulerSched(Base):
+
+    module_logging_levels = {'apscheduler': logging.WARNING}
 
     def __init__(
             self,

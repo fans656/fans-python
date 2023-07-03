@@ -1,3 +1,3 @@
 class Base:
 
-    pass
+    module_logging_levels = {}
