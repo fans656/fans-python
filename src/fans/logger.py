@@ -31,6 +31,7 @@ def set_log_level(level):
 def setup_logging(module_levels = {}):
     global _setup_done
     root = logging.root
+    # TODO: library should not set level, only app should
     if root.level > logging.INFO:
         root.setLevel(logging.INFO)
 

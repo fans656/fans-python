@@ -85,6 +85,15 @@ class Jober:
         self._id_to_job[job.id] = job
         return job
 
+    def remove_job(self, job_id: str) -> bool:
+        # TODO: more robust removable check
+        job = self._id_to_job.get(job_id)
+        if not job:
+            return False
+        if not job.finished:
+            return False
+        return bool(self._id_to_job.pop(job_id))
+
     # TODO: mode should not be in Job
     # TODO: sched can be separated out from Job?
     def make_job(
@@ -250,6 +259,7 @@ def _run_job(*, target, job_id, run_id, prepare):
             prepare()
         target()
     except:
+        print(traceback.format_exc()) # output traceback in job run thread
         _events_queue.put(eventer.error())
     else:
         _events_queue.put(eventer.done())

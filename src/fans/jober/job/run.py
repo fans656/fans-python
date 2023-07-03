@@ -14,12 +14,21 @@ class Run:
     def __init__(self, *, job_id, run_id):
         self.job_id = job_id
         self.run_id = run_id
-        self.status = 'ready'
+        self.status = 'init'
         self.trace = None
+        self._outputs = []
 
         # TODO: limit output size
         # NOTE: this does not support multiple clients
         self._events_queue = queue.Queue()
+
+    @property
+    def output(self) -> str:
+        return ''.join(self._outputs)
+
+    @property
+    def finished(self):
+        return self.status in finished_statuses
 
     async def iter_events_async(self, should_stop = None):
         content_event = None
@@ -60,7 +69,7 @@ class Run:
                 self.status = 'error'
                 self.trace = event.get('trace')
             case EventType.job_run_output:
-                pass
+                self._outputs.append(event['content'])
             case _:
                 logger.warning(f'invalid event: {event}')
         self._events_queue.put(event)

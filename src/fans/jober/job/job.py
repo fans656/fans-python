@@ -48,8 +48,12 @@ class Job:
         return self.last_run.trace
 
     @property
+    def output(self) -> str:
+        return self.last_run.output
+
+    @property
     def finished(self):
-        return self.last_run.status in finished_statuses
+        return self.last_run.finished
 
     @property
     def last_run(self):
