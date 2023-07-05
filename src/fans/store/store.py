@@ -56,6 +56,14 @@ class Store:
         persist = None
         if hint:
             persist = hint.get('persist')
+            if isinstance(persist, str):
+                match persist:
+                    case 'json':
+                        persist = json_persist.get_instance()
+                    case 'config':
+                        persist = conf_persist.get_instance()
+                    case _:
+                        raise ValueError(f'invalid persist hint: "{persist}"')
         if persist is None:
             suffix = self.path.suffix
             getter = suffix_to_persist.get(suffix)
@@ -93,9 +101,9 @@ def normalized_hint(hint):
         ret = {}
         keywords = set(hint.split())
         if 'config' in keywords:
-            ret['persist'] = conf_persist.get_instance()
+            ret['persist'] = 'config'
         if 'json' in keywords:
-            ret['persist'] = json_persist.get_instance()
+            ret['persist'] = 'json'
         if 'silent' in keywords:
             ret['silent'] = True
         return ret

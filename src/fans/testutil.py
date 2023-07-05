@@ -1,3 +1,6 @@
+import logging
+
+
 class Meta:
     """
     Construct pytest test class from given testcase specs.
@@ -14,3 +17,17 @@ class Meta:
                 method_name = 'test_' + testcase['name'].replace(' ', '_')
                 attrs[method_name] = make_testcase(testcase)
         return type(name, bases, attrs)
+
+
+def has_warning(caplog, prefix):
+    return has_log_of_level(caplog, prefix, logging.WARNING)
+
+
+def has_error(caplog, prefix):
+    return has_log_of_level(caplog, prefix, logging.ERROR)
+
+
+def has_log_of_level(caplog, prefix, level):
+    return next((
+        r for r in caplog.records if (r.levelno == level and r.message.startswith(prefix)
+    )), None)

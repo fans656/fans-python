@@ -18,11 +18,13 @@ class Meta(dict):
             path: 'fans.Path',
             default: Callable[[], dict] = lambda: {},
             before_save: Callable[[dict], None] = noop,
+            tmpdir: 'fans.Path' = None,
     ):
         self.path = path
         self.default = default
         self.loaded = False
         self.before_save = before_save
+        self.tmpdir = tmpdir
 
     def save(self, update: dict = None):
         if not self.loaded:
@@ -32,14 +34,6 @@ class Meta(dict):
         self.update(meta)
         self._save()
 
-    def _save(self):
-        self.path.save(
-            self,
-            hint = 'json',
-            indent = 2,
-            ensure_ascii = False,
-        )
-
     def load(self):
         try:
             self.update(self.path.load(hint = 'json'))
@@ -48,11 +42,6 @@ class Meta(dict):
             self._save()
         self.loaded = True
         return self
-
-    def __getitem__(self, *args, **kwargs):
-        if not self.loaded:
-            self.load()
-        return super().__getitem__(*args, **kwargs)
 
     def get(self, *args, **kwargs):
         if not self.loaded:
@@ -68,3 +57,16 @@ class Meta(dict):
         if not self.loaded:
             self.load()
         return super().values()
+
+    def _save(self):
+        self.path.save(
+            self,
+            hint = {'persist': 'json', 'tmpdir': self.tmpdir},
+            indent = 2,
+            ensure_ascii = False,
+        )
+
+    def __getitem__(self, *args, **kwargs):
+        if not self.loaded:
+            self.load()
+        return super().__getitem__(*args, **kwargs)

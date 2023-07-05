@@ -104,10 +104,10 @@ class Test_runnable_job:
     def test_job_status_done(self):
         jober = Jober()
         job = jober.run_job(self.func, mode = 'process')
-        assert job.status == 'ready'
+        assert job.status == 'init'
 
         jober.start()
-        wait_when_status(job, 'ready')
+        wait_when_status(job, 'init')
         assert job.status == 'running'
 
         wait_when_status(job, 'running')
@@ -118,10 +118,10 @@ class Test_runnable_job:
     def test_job_status_error(self):
         jober = Jober()
         job = jober.run_job(self.func_error, mode = 'process')
-        assert job.status == 'ready'
+        assert job.status == 'init'
 
         jober.start()
-        wait_when_status(job, 'ready')
+        wait_when_status(job, 'init')
         assert job.status == 'running'
 
         wait_when_status(job, 'running')

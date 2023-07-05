@@ -1,5 +1,6 @@
 import json
 import hashlib
+from typing import Iterable
 
 
 noop = lambda *_, **__: None
@@ -28,3 +29,7 @@ def partition(xs, pred = identity):
         else:
             fs.append(x)
     return ts, fs
+
+
+def omit(d: dict, keys: Iterable[str]):
+    return {key: value for key, value in d.items() if key not in keys}

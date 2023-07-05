@@ -1,4 +1,5 @@
 import json
+import hashlib
 
 from fans.logger import get_logger
 
@@ -14,11 +15,26 @@ class Persist:
         with path.open(encoding = 'utf-8') as f:
             return json.load(f, **kwargs)
 
-    def save(self, path, data, hint, **kwargs):
+    def save(self, path: 'pathlib.Path', data: any, hint: dict, **kwargs):
+        """
+        Save data to path as json
+
+        Write will be atomic if `hint` having:
+            tmpdir: pathlib.Path - directory used for atomic writing intermediate results
+        """
         kwargs.setdefault('ensure_ascii', False)
-        # TODO: atomic write
-        with path.open('w', encoding = 'utf-8') as f:
+
+        tmpdir = (hint or {}).get('tmpdir')
+        if tmpdir:
+            write_path = tmpdir / hashlib.md5(str(path).encode()).hexdigest()
+        else:
+            write_path = path
+
+        with write_path.open('w', encoding = 'utf-8') as f:
             json.dump(data, f, **kwargs)
+
+        if write_path != path:
+            write_path.replace(path)
 
     def extend(self, path, items, hint, key = None, **kwargs):
         if not items:

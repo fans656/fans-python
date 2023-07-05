@@ -1,3 +1,6 @@
+from .fn import noop
+
+
 def ellipsis(string: str, length: int = 80, suffix = '...'):
     """
     Truncate string to given length.
