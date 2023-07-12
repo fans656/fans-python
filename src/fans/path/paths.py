@@ -1,5 +1,6 @@
 import pathlib
-from typing import Iterable, List, Union
+from functools import reduce
+from typing import Iterable, List, Union, Optional
 
 import fans.tree.tree
 import fans.bunch
@@ -7,8 +8,31 @@ import fans.bunch
 from fans.path.enhanced import Path
 
 
-def make_paths(root: Union[str, pathlib.Path], specs: Iterable[any] = None) -> 'NamespacedPath':
+def make_paths(
+        root: Optional[Union[str, pathlib.Path]],
+        conf: Optional[dict] = None,
+        specs: Iterable[any] = None,
+) -> 'NamespacedPath':
     """
+    Make a paths tree.
+
+    Usage:
+
+        # relative paths
+        make_paths([
+            'foo.txt', {'foo'},
+        ])
+
+        # absolute paths
+        make_paths('/tmp', [
+            'foo.txt', {'foo'},
+        ])
+
+        # absolute paths with root conf
+        make_paths('/tmp/hello', {'create': 'dir'}, [
+            'foo.txt', {'foo'},
+        ])
+
     >>> paths = make_paths([
     ...    'temp', [
     ...        'foo.yaml', {'foo'},
@@ -30,21 +54,33 @@ def make_paths(root: Union[str, pathlib.Path], specs: Iterable[any] = None) -> '
     ... ]).test
     NamespacedPath('/tmp/test.txt')
     """
-    if specs is None:
+    if conf is None and specs is None: # make_paths(['foo.txt', {'foo'}])
         specs = root
+        conf = {}
         root = ''
-    root = make_specs_tree(root, specs)
-    return root.node.build_namespace()
+    elif specs is None: # make_paths('/tmp', ['foo.txt', {'foo'}])
+        specs = conf
+        conf = {}
+    else: # make_paths('/tmp', {'create': 'dir'}, ['foo.txt', {'foo'}])
+        pass
 
-
-def make_specs_tree(root_path, specs: Iterable) -> 'PathNode':
     assert isinstance(specs, Iterable), f"specs should be an iterable, not {type(specs)}"
     specs = list(normalize_specs(specs))
-    root = fans.tree.make({'path': '', 'children': specs}, PathNode, assign_parent = True)
-    root.data.path = Path(root_path)
+    root = fans.tree.make(
+        {
+            **normalize_conf(conf),
+            'path': Path(root),
+            'children': specs,
+        },
+        wrap = Node,
+        assign_parent = True,
+    )
     root.children.normalize()
     root.derive()
-    return root
+    root.derive('make', ensure_parent = False)
+    root.derive('build', bottomup = True)
+
+    return root.data.path
 
 
 def normalize_specs(specs: Iterable) -> List[dict]:
@@ -62,7 +98,7 @@ def normalize_specs(specs: Iterable) -> List[dict]:
             cur = {'path': spec}
         elif isinstance(spec, (set, dict)):
             ensure_cur(cur, 'conf', spec)
-            cur.update(normalize_conf(spec, cur['path']))
+            cur.update(normalize_conf(spec))
         elif isinstance(spec, list):
             ensure_cur(cur, 'children', spec, 'children list')
             cur['children'] = list(normalize_specs(spec))
@@ -72,7 +108,15 @@ def normalize_specs(specs: Iterable) -> List[dict]:
         yield cur
 
 
-def normalize_conf(conf, path):
+def normalize_conf(conf):
+    """
+    Conf fields: {
+        name: str - name of the path
+        create: str - ensure the path exists as given type ("dir" | "file")
+    }
+
+    You can also use a set {'foo'}, which is equivalent to {'name': 'foo'}.
+    """
     if isinstance(conf, set):
         assert len(conf) == 1, f"invalid conf {conf} for {path}"
         conf = {'name': next(iter(conf))}
@@ -80,12 +124,20 @@ def normalize_conf(conf, path):
     return conf
 
 
-class PathNode:
+class Node:
 
-    def __init__(self, data):
+    def __init__(self, data: dict):
+        """
+        data fields: {
+            **conf,
+            path: str - relative path of the node
+            children: str - children data
+        }
+        """
         self.data = data
         self.name = data.get('name')
         self.path = data['path']
+        self.name_to_path = {}
 
     def normalize(self):
         if isinstance(self.path, str) and self.path.startswith('~'):
@@ -93,62 +145,62 @@ class PathNode:
 
     def derive(self):
         self.path = self.parent.path / self.path
+
+    def make(self):
+        self.path = NamespacedPath(self.path)._with_impl(self)
+        if self.name:
+            self.name_to_path[self.name] = self.path
+
         if self.data.get('create') == 'dir':
             self.path.ensure_dir()
 
-    def build_namespace(self) -> 'NamespacedPath':
-        return NamespacedPath(self.path).with_namespace({
-            node.name: node.build_namespace()
-            for node in self.node.descendants if node.name
-        }).with_node(self)
+    def build(self, target: 'Node' = None) -> 'NamespacedPath':
+        for name, path in reduce(
+                lambda acc, x: {**acc, **x},
+                (target or self).node.children.name_to_path,
+                {},
+        ).items():
+            self.name_to_path[name] = path
+            setattr(self.path, name, path)
+        return self
 
     def create(self):
         if 'children' in self.data:
             self.path.ensure_dir()
         else:
             self.path.touch()
-        for child in self.node.children:
-            child.create()
+        self.node.children.create()
 
-    def as_dict(self):
-        return {
-            'path': str(self.path),
-            'children': sorted(
-                [c.as_dict() for c in self.node.children],
-                key = lambda d: d['path'],
-            ),
-        }
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}(path = {self.path}, name = {self.name})"
+    def with_tree(self, specs):
+        root = make_paths(self.path, specs)
+        self.build(root._impl)
+        self.node.root.data.build(root._impl)
 
 
 class NamespacedPath(Path):
 
-    def create(self) -> 'NamespacedPath':
+    def create(self):
+        self._impl.create()
+        return self
+
+    def with_tree(self, specs):
         """
-        Create file/dir structure for this path tree.
+        Attach the tree given by `specs` to current path. Root namespace is also updated.
+
+        paths = make_paths([
+            'core', {'core'},
+        ])
+        paths.core.with_tree([
+            'fs.sqlite', {'database_path'},
+        ])
+        assert paths.database_path == Path('core/fs.sqlite')
         """
-        self._node.create()
+        self._impl.with_tree(specs)
         return self
 
-    def with_namespace(self, namespace: dict) -> 'NamespacedPath':
-        for name, value in namespace.items():
-            if hasattr(self, name):
-                raise ValueError(f"{name} is overriding attribute on {repr(self)}")
-            setattr(self, name, value)
+    def _with_impl(self, impl):
+        self._impl = impl
         return self
-
-    def with_node(self, node: PathNode) -> 'NamespacedPath':
-        self._node = node
-        return self
-
-    def as_dict(self):
-        return self._node.as_dict()
-
-    def __iter__(self):
-        for node in self._node.node.descendants:
-            yield node
 
 
 if __name__ == '__main__':

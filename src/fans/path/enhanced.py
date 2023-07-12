@@ -29,6 +29,10 @@ class Path(type(pathlib.Path())):
     def as_meta(self, **kwargs):
         return Meta(self, **kwargs)
 
+    def with_tree(self, *args, **kwargs) -> 'fans.path.paths.NamespacedPath':
+        from .paths import make_paths
+        return make_paths(self, *args, **kwargs)
+
     @property
     def mtime(self):
         try:

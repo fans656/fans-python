@@ -6,6 +6,10 @@ from fans.bunch import bunch
 from fans.vectorized import vectorized
 
 
+NodeData = Any
+WrappedNodeData = object
+
+
 class Node:
     """
     Represent a node in the tree.
@@ -23,7 +27,7 @@ class Node:
 
     @property
     def root(self):
-        cur = self.parent
+        cur = self
         while cur.parent:
             cur = cur.parent
         return cur
@@ -31,6 +35,9 @@ class Node:
     @property
     @vectorized
     def children(self):
+        """
+        Note: this yields data instead of node itself, use `_children` for nodes
+        """
         for child in self._children:
             yield child.data
 
@@ -56,18 +63,54 @@ class Node:
         else:
             yield self.data
 
-    def derive(self, func = None, ensure_parent = True, derive_args = (), derive_kwargs = {}):
+    def derive(
+            self,
+            func = None,
+            *,
+            derive_args = (),
+            derive_kwargs = {},
+            ensure_parent = True,
+            ensure_children = True,
+            bottomup = False,
+    ):
+        # call data.derive(...)
         if func is None:
-            func = lambda data: getattr(data, 'derive')(*derive_args, **derive_kwargs)
+            _func = lambda data: getattr(data, 'derive')(*derive_args, **derive_kwargs)
+        # call getattr(data, func)(...) where func is str
         elif isinstance(func, str):
             key = func
-            func = lambda data: getattr(data, key)(*derive_args, **derive_kwargs)
-        self._derive(func, ensure_parent = ensure_parent)
+            _func = lambda data: getattr(data, key)(*derive_args, **derive_kwargs)
+        # call func(data, ...)
+        elif callable(func):
+            _func = lambda data: func(data, *derive_args, **derive_kwargs)
+        else:
+            raise ValueError(f'invalid derive func "{func}"')
 
-    def _derive(self, func, ensure_parent = True):
+        if bottomup:
+            self._derive_bottomup(_func, ensure_children = ensure_children)
+        else:
+            self._derive_topdown(_func, ensure_parent = ensure_parent)
+
+    def _derive_topdown(self, func: Callable[[NodeData], None], ensure_parent: bool = True):
+        """
+        Params:
+            func - callable to apply to each node
+            ensure_parent - only call `func` when current node has parent
+        """
         if not ensure_parent or self.parent:
             func(self.data)
-        self._children._derive(func, ensure_parent = False)
+        self._children._derive_topdown(func, ensure_parent = False)
+
+    def _derive_bottomup(self, func: Callable[[NodeData], None], ensure_children: bool = True):
+        """
+        Params:
+            func - callable to apply to each node
+            ensure_children - only call `func` when current node has children
+        """
+        if self._children:
+            self._children._derive_bottomup(func, ensure_children = ensure_children)
+        if not ensure_children or self.children:
+            func(self.data)
 
     def __getattr__(self, key):
         return getattr(self.data, key)
@@ -78,18 +121,19 @@ class Node:
         self._children.show(fmt = fmt, depth = depth + 1)
 
 
-NodeData = Any
-WrappedNodeData = object
 GetChildren = Callable[[NodeData], Iterable[NodeData]]
 AssignNode = Callable[[WrappedNodeData, Node], None]
-AssignParent = Callable[[WrappedNodeData, Node], None]
+ParentNode = Node
+AssignParent = Callable[[WrappedNodeData, ParentNode], None]
 AssignChildren = Callable[[WrappedNodeData, List[Node]], None]
 Wrap = Callable[[NodeData], WrappedNodeData]
 
 
 def normalize_get_children(spec):
+    # data[spec] -> children data list
     if isinstance(spec, str):
         return lambda data: data.get(spec) or []
+    # custom callable to get children data list
     elif callable(spec):
         return spec
     else:
@@ -97,38 +141,50 @@ def normalize_get_children(spec):
 
 
 def normalize_assign_node(spec) -> AssignNode:
+    # data.<spec> become the node
     if isinstance(spec, str):
         return lambda data, node: setattr(data, spec, node)
+    # data.node become the node
     elif spec is True:
         return lambda data, node: setattr(data, 'node', node)
+    # custom function to assign node attribute
     elif callable(spec):
         return spec
-    elif spec is None:
+    # do not set node attribute
+    elif not spec:
         return noop
     else:
         raise ValueError(f"invalid spec for assign node: {spec}")
 
 
 def normalize_assign_parent(spec) -> AssignParent:
-    if spec is None:
-        return noop
-    elif spec is True:
-        return lambda data, parent: setattr(data, 'parent', parent)
-    elif isinstance(spec, str):
+    # getattr(data, spec) -> parent
+    if isinstance(spec, str):
         return lambda data, parent: setattr(data, spec, parent)
+    # custom callable to assign parent attribute
     elif callable(spec):
         return spec
+    # data.parent -> parent
+    elif spec == True:
+        return lambda data, parent: setattr(data, 'parent', parent)
+    # do not assign parent
+    elif not spec:
+        return noop
     else:
         raise ValueError(f"invalid spec for assign parent: {spec}")
 
 
 def normalize_assign_children(spec) -> AssignChildren:
+    # no children attribute
     if spec is None:
         return noop
+    # data.children -> children
     elif spec is True:
         return lambda data, children: setattr(data, 'children', children)
+    # getattr(children, spec) -> children
     elif isinstance(spec, str):
         return lambda data, children: setattr(data, spec, children)
+    # custom callable to assign children attribute
     elif callable(spec):
         return spec
     else:
@@ -157,9 +213,22 @@ class TreeMaker:
     def make_node(self, data, parent = None):
         node = self.node_cls(self.wrap(data), parent = parent)
         node._children = vectorized([self.make_node(d, node) for d in self.get_children(data)])
-        self.assign_node(node.data, node)
-        self.assign_parent(node.data, parent.data if parent else None)
-        self.assign_children(node.data, node.children)
+
+        try:
+            self.assign_node(node.data, node)
+        except AttributeError:
+            pass
+
+        try:
+            self.assign_parent(node.data, parent.data if parent else None)
+        except AttributeError:
+            pass
+
+        try:
+            self.assign_children(node.data, node.children)
+        except AttributeError:
+            pass
+
         return node
 
 

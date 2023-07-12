@@ -1,6 +1,6 @@
 import json
 import hashlib
-from typing import Iterable
+from typing import Iterable, List
 
 
 noop = lambda *_, **__: None
@@ -33,3 +33,20 @@ def partition(xs, pred = identity):
 
 def omit(d: dict, keys: Iterable[str]):
     return {key: value for key, value in d.items() if key not in keys}
+
+
+def chunks(vs: Iterable[any], chunk_size: int, count: bool = False) -> Iterable[List[any]]:
+    chunk = []
+    for i, v in enumerate(vs):
+        chunk.append(v)
+        if len(chunk) == chunk_size:
+            if count:
+                yield (i + 1 - chunk_size, i + 1), chunk
+            else:
+                yield chunk
+            chunk = []
+    if chunk:
+        if count:
+            yield (i + 1 - len(chunk), i + 1), chunk
+        else:
+            yield chunk

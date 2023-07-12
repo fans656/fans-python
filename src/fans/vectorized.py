@@ -1,7 +1,4 @@
 from typing import Iterable
-from collections import deque
-
-from fans.fn import noop
 
 
 def vectorized(obj, **kwargs):
@@ -15,27 +12,23 @@ def vectorized(obj, **kwargs):
 
 class Vectorized:
 
-    def __init__(self, iterable, collect = True):
-        self.__iterable = iterable
-        self.__collecting = collect
+    def __init__(self, xs):
+        self.__xs = xs
 
     def __bool__(self):
-        return bool(self.__iterable)
-
-    def __iter__(self):
-        return iter(self.__iterable)
+        return bool(self.__xs)
 
     def __len__(self):
-        return len(self.__iterable)
+        return len(self.__xs)
 
-    def __getattr__(self, key):
-        try:
-            return getattr(self.__iterable, key)
-        except AttributeError:
-            def func(*args, **kwargs):
-                for item in self.__iterable:
-                    yield getattr(item, key)(*args, **kwargs)
-            if self.__collecting:
-                return lambda *args, **kwargs: list(func(*args, **kwargs))
-            else:
-                return lambda *args, **kwargs: deque(func(*args, **kwargs), maxlen = 0) or None
+    def __iter__(self) -> any:
+        return iter(self.__xs)
+
+    def __getattr__(self, key) -> any:
+        return self.__class__(getattr(x, key, None) for x in self.__xs)
+
+    def __call__(self, *args, **kwargs) -> list[any]:
+        return self.__class__(list(x(*args, **kwargs) for x in self.__xs))
+
+    def __repr__(self):
+        return f'Vectorized({self.__xs})'

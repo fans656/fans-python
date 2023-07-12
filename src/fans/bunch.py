@@ -1,8 +1,10 @@
 class bunch(dict):
     """
-    bunch is a dict with extra ability to:
-        d['foo'] <=> d.foo
-        d.foo = 3 <=> d['foo'] = 3
+    A dict where value can be accessed by attribute.
+
+    >>> b = bunch({'foo': 3})
+    >>> b.foo
+    3
     """
 
     def __init__(self, *args, **kwargs):
@@ -15,3 +17,8 @@ class bunch(dict):
 
     def __getattr__(self, key):
         return self.get(key)
+
+
+if __name__ == '__main__':
+    import doctest
+    doctest.testmod()

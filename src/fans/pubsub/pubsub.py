@@ -1,264 +1,237 @@
+"""
+Use cases
+================================================================================
+
+Replace callbacks passing
+
+    # instead of doing this
+    Storages(
+        on_storage_added = ...,
+        on_storage_removed = ...,
+        on_file_uploaded = ...,
+    )
+    Storages.on_storage_added(...)
+    Storages.on_storage_removed(...)
+    S3Storage.on_file_uploaded(...)
+
+    # you can do this
+    pubsub.subscribe('storage.added', ...)
+    pubsub.subscribe('storage.removed', ...)
+    pubsub.subscribe('file.uploaded', ...)
+
+    pubsub.publish('storage.added', ...)
+    pubsub.publish('storage.removed', ...)
+    pubsub.publish('file.uploaded', ...)
+
+Collect events in SSE response generator
+
+    @app.get('/api/events')
+    async def events(request: Request):
+        async def gen():
+            async with pubsub.subscribe_async() as events:
+                while not await request.is_disconnected():
+                    try:
+                        yield await events.get(timeout = 0.02)
+                    except asyncio.exceptions.TimeoutError:
+                        pass
+        return EventSourceResponse(gen())
+
+Events consumer
+================================================================================
+
+    # subscribe for events (of everything)
+
+    for event in subscribe():
+        print(event)
+
+    # subscribe for events of topic
+
+    for event in subscribe('foo'):
+        print(event)
+
+Register callback
+
+    # register callback for everything
+    subscribe(callback)
+
+    # register callback for topic
+    subscribe('foo', callback)
+"""
 import queue
 import asyncio
 import traceback
-import threading
-from typing import Union, Callable
-
-import janus
+from typing import Callable, Union
+from collections import defaultdict
 
 
 class PubSub:
-    """
-    Get pubsub instance:
-
-        # option 1: use the pre-defined instance
-        from fans.pubsub import pubsub
-
-        # option 2: instantiate separate instance
-        from fans.pubsub import PubSub
-        pubsub = PubSub()
-
-    different `PubSub` instances are separted environment for events publishing/subscribing.
-
-
-    Usage (single thread):
-
-        def callback(data):
-            print(data)
-
-        pubsub.subscribe(callback, 'foo') # registered the callback
-        pubsub.publish({'hello': 'world'}, 'foo') # published the event into pubsub
-        pubsub.run() # this will trigger the callback
-
-    the `topic` parameter can be ignored and will defaults to `None`.
-    """
 
     def __init__(self):
-        self.running = False
-        self._topic_to_consumers = {}
-        self._topic_to_consumers_lock = threading.Lock()
-        self._thread_id_to_runner = {}
-        self._thread_id_to_runner_lock = threading.Lock()
+        self._topic_to_subs = defaultdict(lambda: set())
 
-    def publish(self, data, topic = None):
-        consumers = self.get_consumers(topic)
-        for consumer in consumers:
-            consumer.publish(data)
+    def publish(
+            self,
+            topic: str,
+            data: any,
+    ):
+        for _topic in nested_topics(topic):
+            subs = self._topic_to_subs.get(_topic)
+            if subs:
+                for sub in subs:
+                    try:
+                        sub._invoke_callback(topic, data)
+                    except:
+                        traceback.print_exc()
 
-    def subscribe(self, callback = None, topic = None, is_async = False) -> 'Consumer':
-        consumer = Consumer(callback = callback, topic = topic, is_async = is_async)
-        self.runner.add_consumer(consumer)
-        self.get_consumers(topic).add(consumer)
-        return consumer
+    def subscribe(
+            self,
+            topic: str = '',
+            callback: Callable[[any, str], None] = None,
+    ) -> 'Subscription':
+        if callable(topic):
+            if callback is None:
+                callback = topic
+                topic = ''
+            else:
+                raise ValueError(f'invalid subscribe arguments: {(topic, callback)}')
+        if topic == '*':
+            topic = ''
+        sub = Subscription(topic, callback, self)
+        if callback:
+            self._topic_to_subs[topic].add(sub)
+        return sub
 
-    async def subscribe_async(self, callback = None, topic = None) -> 'Consumer':
-        consumer = self.subscribe(callback, topic, is_async = True)
-        asyncio.create_task(self.run_async())
-        return consumer
+    def unsubscribe(
+            self,
+            token: Union['Subscription', callable],
+            topic: str = '',
+    ):
+        subs = self._topic_to_subs.get(topic)
+        if subs:
+            subs.discard(token)
 
-    def unsubscribe(self, consumer: 'Consumer'):
-        consumers = self.get_consumers(consumer.topic)
-        consumers.discard(consumer)
+    def subscribed(
+            self,
+            token: Union['Subscription', callable],
+            topic: str = '',
+    ) -> bool:
+        subs = self._topic_to_subs.get(topic)
+        return subs and token in subs
 
-        runner = consumer.runner
-        runner.discard_consumer(consumer)
-        if not runner.consumers:
-            runner.stop()
-            with self._thread_id_to_runner_lock:
-                del self._thread_id_to_runner[runner.thread_id]
 
-    def start(self):
-        """
-        Note: Call this only when used for blocking run.
-        """
-        self.thread = threading.Thread(target = self.run)
-        self.thread.start()
+class Subscription:
 
-    def run(self):
-        """
-        Blocking loop to run callbacks in current thread.
+    def __init__(self, topic, callback, pubsub):
+        self.topic = topic
+        self.callback = callback
+        self.pubsub = pubsub
 
-        Note: Call this only when used for blocking run.
-        """
-        # TODO: move while loop into runner
-        if self.running:
-            return
-        runner = self.runner
-
-        self.running = True
-
-        while (event := runner.get_event()):
-            consume, data = event
-            consume(data)
-
-        self.running = False
-
-    async def run_async(self):
-        if self.running:
-            return
-        runner = self.runner
-        runner.make_async()
-        if not runner.consumers:
-            with self._thread_id_to_runner_lock:
-                del self._thread_id_to_runner[runner.thread_id]
-            return
-
-        self.running = True
-
-        while (event := await runner.get_event_async()):
-            consumer, data = event
-            await consumer.handle_async(data)
-        await runner.close()
-
-        self.running = False
-
-    async def join_async(self):
-        """
-        Wait until all running loops to finish.
-        """
-        await asyncio.gather(*(asyncio.all_tasks() - {asyncio.current_task()}))
+        self.mode = None
 
     @property
-    def runner(self):
-        thread_id = threading.get_ident()
-        if thread_id not in self._thread_id_to_runner:
-            with self._thread_id_to_runner_lock:
-                self._thread_id_to_runner[thread_id] = Runner(pubsub = self)
-        return self._thread_id_to_runner[thread_id]
+    def events(self):
+        if self.mode:
+            raise RuntimeError(f'subscription already have mode set to {self.mode}')
+        events = Events(self)
+        self.callback = events.put_event
+        self.pubsub._topic_to_subs[self.topic].add(self)
+        self.mode = 'events'
+        return iter(events)
 
-    def get_consumers(self, topic):
-        if topic not in self._topic_to_consumers:
-            with self._topic_to_consumers_lock:
-                self._topic_to_consumers[topic] = SetWithLock()
-        return self._topic_to_consumers[topic]
-
-
-class Consumer:
-
-    def __init__(self, callback, topic, is_async = False):
-        self.callback = callback
-        self.topic = topic
-        self.is_async = is_async
-
-        self.runner = None
-        self._orig_callback = None
-
-        if is_async:
-            if not asyncio.iscoroutinefunction(self.callback):
-                self._orig_callback = self.callback
-                self.callback = self.async_callback
-
-        if not callback:
-            self.callback = self.enqueue_data_callback
-            self._data_queue = janus.Queue()
+    @property
+    def async_events(self):
+        if self.mode:
+            raise RuntimeError(f'subscription already have mode set to {self.mode}')
+        events = AsyncEvents(self)
+        self.callback = events.put_event
+        self.pubsub._topic_to_subs[self.topic].add(self)
+        self.mode = 'async_events'
+        return events
 
     def __enter__(self):
-        return self
+        pass
 
-    def __exit__(self, *_, **__):
-        self.runner.pubsub.unsubscribe(self)
+    def __exit__(self, *_):
+        self.pubsub.unsubscribe(self, self.topic)
 
-    async def get_async(self, wait = True):
-        if wait:
-            return await self._data_queue.async_q.get()
-        else:
-            return self._data_queue.async_q.get_nowait()
+    def _invoke_callback(self, topic, data):
+        self.callback(topic, data)
 
-    def publish(self, data):
-        self.runner.publish((self, data))
+    def __hash__(self):
+        return hash(self.callback)
 
-    def __call__(self, data):
-        try:
-            self.callback(data)
-        except:
-            traceback.print_exc()
-
-    async def handle_async(self, data):
-        try:
-            await self.callback(data)
-        except:
-            traceback.print_exc()
-
-    async def async_callback(self, *args, **kwargs):
-        return self._orig_callback(*args, **kwargs)
-
-    async def enqueue_data_callback(self, data):
-        await self._data_queue.async_q.put(data)
+    def __eq__(self, other):
+        return self.callback is other or self.callback == other.callback
 
 
-class Runner:
+class Events:
 
-    def __init__(self, pubsub = None):
-        self.pubsub = pubsub
-        self.thread_id = threading.get_ident()
+    def __init__(self, sub):
+        self.sub = sub
         self.queue = queue.Queue()
-        self.consumers = SetWithLock()
-        self.is_async = False
 
-    def add_consumer(self, consumer):
-        self.consumers.add(consumer)
-        consumer.runner = self
-        if consumer.is_async:
-            self.make_async()
-
-    def discard_consumer(self, consumer):
-        self.consumers.discard(consumer)
-
-    def publish(self, event):
-        self.queue_put(event)
-
-    def stop(self):
-        self.queue_put(None)
-
-    def get_event(self):
-        return self.queue.get()
-
-    async def get_event_async(self, wait = True):
-        if wait:
-            return await self.queue_async.async_q.get()
-        else:
-            return self.queue_async.async_q.get_nowait()
-
-    def make_async(self):
-        if not self.is_async:
-            self.queue_async = janus.Queue()
-            self.queue = None
-            self.is_async = True
-
-    async def close(self):
-        self.queue_async.close()
-        await self.queue_async.wait_closed()
-
-    def queue_put(self, item):
-        if self.is_async:
-            self.queue_async.sync_q.put(item)
-        else:
-            self.queue.put(item)
-
-
-class SetWithLock:
-
-    def __init__(self):
-        self.elems = set()
-        self.lock = threading.Lock()
+    def put_event(self, topic, data):
+        self.queue.put((topic, data))
 
     def __iter__(self):
-        with self.lock:
-            yield from iter(self.elems)
+        while True:
+            yield self.queue.get()
 
-    def __contains__(self, elem):
-        return elem in self.elems
 
-    def __bool__(self):
-        return bool(self.elems)
+class AsyncEvents:
 
-    def add(self, elem):
-        with self.lock:
-            self.elems.add(elem)
+    def __init__(self, sub):
+        self.sub = sub
+        self.queue = self.make_janus_queue()
 
-    def discard(self, elem):
-        with self.lock:
-            self.elems.discard(elem)
+    def put_event(self, topic, data):
+        self.queue.sync_q.put((topic, data))
+
+    async def get(self, timeout: int = None):
+        if timeout:
+            return await asyncio.wait_for(anext(self), timeout = timeout)
+        else:
+            return await anext(self)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        await self.close()
+
+    async def __await__(self):
+        return self
+
+    async def close(self):
+        self.queue.close()
+        await self.queue.wait_closed()
+
+    def make_janus_queue(self):
+        import janus
+        return janus.Queue()
+
+    async def collect_events(self):
+        while True:
+            yield await self.queue.async_q.get()
+
+    async def __anext__(self):
+        async for event in self.collect_events():
+            return event
+
+    def __aiter__(self):
+        return aiter(self.collect_events())
+
+
+def nested_topics(topic: str):
+    yield topic
+    while (index := topic.rfind('.')) != -1:
+        topic = topic[:index]
+        yield topic
+    if topic:
+        yield ''
 
 
 pubsub = PubSub()
+publish = pubsub.publish
+subscribe = pubsub.subscribe
+unsubscribe = pubsub.unsubscribe
