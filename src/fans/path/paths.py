@@ -168,7 +168,11 @@ class Node:
         if 'children' in self.data:
             self.path.ensure_dir()
         else:
-            self.path.touch()
+            if (content := self.data.get('content')):
+                with self.path.open('w') as f:
+                    f.write(content)
+            else:
+                self.path.touch()
         self.node.children.create()
 
     def with_tree(self, specs):

@@ -179,7 +179,11 @@ class Logger:
         self.context().on_notify(data)
 
     def exception(self, message, data = None, exc_cls = None):
-        self.error(f'{message} | {data}')
+        if not data:
+            self.error(f'{message} | {data}')
+        else:
+            self.error(traceback.format_exc())
+            self.error(f'{message}')
         exc_cls = exc_cls or Exception
         return exc_cls(message, data)
 

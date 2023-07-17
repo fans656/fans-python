@@ -77,7 +77,7 @@ class PubSub:
         for _topic in nested_topics(topic):
             subs = self._topic_to_subs.get(_topic)
             if subs:
-                for sub in subs:
+                for sub in tuple(subs):
                     try:
                         sub._invoke_callback(topic, data)
                     except:
@@ -183,9 +183,11 @@ class AsyncEvents:
     def __init__(self, sub):
         self.sub = sub
         self.queue = self.make_janus_queue()
+        self.closed = False
 
     def put_event(self, topic, data):
-        self.queue.sync_q.put((topic, data))
+        if not self.closed:
+            self.queue.sync_q.put((topic, data))
 
     async def get(self, timeout: int = None):
         if timeout:
@@ -196,13 +198,15 @@ class AsyncEvents:
     async def __aenter__(self):
         return self
 
-    async def __aexit__(self, *_):
+    async def __aexit__(self, exc_cls, exc, trace):
+        self.sub.__exit__(exc_cls, exc, trace)
         await self.close()
 
     async def __await__(self):
         return self
 
     async def close(self):
+        self.closed = True
         self.queue.close()
         await self.queue.wait_closed()
 
