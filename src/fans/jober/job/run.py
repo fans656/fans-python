@@ -1,3 +1,4 @@
+import time
 import queue
 import asyncio
 
@@ -17,6 +18,8 @@ class Run:
         self.status = 'init'
         self.trace = None
         self._outputs = []
+
+        self.ctime = time.time()
 
         # TODO: limit output size
         # NOTE: this does not support multiple clients
