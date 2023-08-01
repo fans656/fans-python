@@ -2,6 +2,7 @@ import uuid
 import queue
 import asyncio
 from abc import abstractmethod
+from typing import Iterable
 
 from fans.logger import get_logger
 
@@ -50,6 +51,22 @@ class Job:
     @property
     def output(self) -> str:
         return self.last_run.output
+
+    @property
+    def output_lines(self) -> str:
+        return self.last_run.output_lines
+
+    @property
+    def runs(self) -> Iterable['Run']:
+        return self._id_to_run.values()
+
+    @property
+    def removable(self):
+        if not self.runs:
+            return True
+        if self.finished:
+            return True
+        return False
 
     @property
     def finished(self):

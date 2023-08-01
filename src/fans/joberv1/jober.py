@@ -119,7 +119,7 @@ class Jober:
             sched = spec.get('sched'),
             retry = spec.get('retry'),
             config = self.spec.get('job.config'),
-            on_event = self.pubsub.publish,
+            on_event = lambda event: self.pubsub.publish('', event),
             on_retry = self._retry_job,
         )
 

@@ -7,6 +7,11 @@ from fans.path import Path
 from fans.jober.jober import Jober, make_conf, conf_default
 
 
+@pytest.fixture
+def jober():
+    return Jober()
+
+
 class Test_make_job:
 
     @classmethod
@@ -51,16 +56,38 @@ class Test_make_job:
             assert str(e).startswith('invalid job target type')
 
 
+class Test_get:
+
+    def test_initial(self, jober):
+        assert jober.get_job('asdf') is None
+
+    def test_get(self, jober):
+        job = jober.add_job('ls')
+        assert jober.get_job(job.id)
+
+    def test_get_jobs(self, jober):
+        jober.add_job('ls')
+        jober.add_job('date')
+        jobs = jober.get_jobs()
+        assert len(jobs) == 2
+
+
+class Test_remove:
+
+    def test_remove(self, jober):
+        job = jober.add_job('ls')
+        assert jober.get_job(job.id)
+        assert jober.remove_job(job.id)
+        assert jober.get_job(job.id) is None
+
+    # TODO: test unremovable
+
+
 class Test_jober:
 
     @classmethod
     def setup_class(cls):
         cls.jober = Jober()
-
-    def test_can_list_jobs(self):
-        self.jober.add_job('ls')
-        self.jober.add_job('date')
-        assert len(self.jober.get_jobs()) == 2
 
     def test_start_stop(self):
         self.jober.make_job('ls')

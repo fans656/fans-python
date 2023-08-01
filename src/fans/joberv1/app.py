@@ -186,8 +186,8 @@ async def job_logs(
 @app.get('/api/job/events')
 async def api_get_events(request: Request):
     async def gen():
-        with await Jober.get_instance().pubsub.subscribe_async() as events:
+        async with Jober.get_instance().pubsub.subscribe().async_events as events:
             while not await request.is_disconnected():
-                event = await events.get_async()
+                event = await events.get()
                 yield {'data': json.dumps(event)}
     return EventSourceResponse(gen())

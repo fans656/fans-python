@@ -87,12 +87,15 @@ class Jober:
 
     def remove_job(self, job_id: str) -> bool:
         # TODO: more robust removable check
-        job = self._id_to_job.get(job_id)
+        job = self.get_job(job_id)
         if not job:
+            logger.warning(f'remove_job: job ID not found {job_id}')
             return False
-        if not job.finished:
+        if not job.removable:
+            logger.warning(f'remove_job: job not removable {job_id}')
             return False
-        return bool(self._id_to_job.pop(job_id))
+        del self._id_to_job[job_id]
+        return True
 
     # TODO: mode should not be in Job
     # TODO: sched can be separated out from Job?
@@ -138,16 +141,29 @@ class Jober:
         util.disable_proxy()
 
     def get_job(self, job_id: str) -> 'Job':
-        return self._id_to_job.get(job_id)
+        """
+        Get job by ID.
 
-    def get_jobs(self, *args, **kwargs) -> List['Job']:
-        return list(self.iter_jobs(*args, **kwargs))
+        Params:
+            job_id - ID of the job.
+
+        Returns:
+            Job with given ID or None if not found
+        """
+        return self._id_to_job.get(job_id)
 
     def iter_jobs(
             self,
             status: str = None,
             mode: str = None,
     ) -> Iterable['Job']:
+        """
+        Get an iterable of jobs.
+
+        Params:
+            status - Filter with given status
+            mode - Filter with given mode
+        """
         jobs = self._id_to_job.values()
         for job in jobs:
             if mode and job.mode != mode:
@@ -156,11 +172,37 @@ class Jober:
                 continue
             yield job
 
-    def add_listener(self, callback):
-        self._listeners.add(callback)
+    def get_jobs(self, *args, **kwargs) -> List['Job']:
+        """
+        Get all jobs. See `iter_jobs` for filter/sort options.
+        """
+        return list(self.iter_jobs(*args, **kwargs))
 
-    def remove_listener(self, callback):
-        self._listeners.discard(callback)
+    def add_listener(self, callback: Callable[[dict], None]) -> any:
+        """
+        Add an event listener to listen for all events.
+
+        Params:
+            callback - Callback called with the event
+
+        Returns:
+            token - Token used to unlisten the added event listener
+        """
+        listeners = set(self._listeners)
+        listeners.add(callback)
+        self._listeners = listeners
+        return callback
+
+    def remove_listener(self, token: any):
+        """
+        Remove previously added event listener.
+
+        Params:
+            token - Token got from `add_listener` return value.
+        """
+        listeners = set(self._listeners)
+        listeners.discard(token)
+        self._listeners = listeners
 
     def _get_job_maker_by_mode(self, mode: str):
         match mode:

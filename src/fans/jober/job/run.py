@@ -30,6 +30,11 @@ class Run:
         return ''.join(self._outputs)
 
     @property
+    def output_lines(self) -> list[str]:
+        # TODO: find newline upon append instead of here
+        return self.output.rstrip('\n').split('\n')
+
+    @property
     def finished(self):
         return self.status in finished_statuses
 
@@ -50,7 +55,7 @@ class Run:
                 yield event
 
     async def _iter_events_async(self, should_stop = None):
-        while True:
+        while not self.finished:
             try:
                 event = self._events_queue.get(False)
             except queue.Empty:
