@@ -16,9 +16,16 @@ def parse_int(value, default = 0):
         return default
 
 
-def calc_dict_md5(data):
-    text = json.dumps(data, sort_keys = True, ensure_ascii = False)
+def calc_text_md5(text):
     return hashlib.md5(text.encode()).hexdigest()
+
+
+def calc_dict_md5(data):
+    return calc_text_md5(dict_as_ordered_json(data))
+
+
+def dict_as_ordered_json(data):
+    return json.dumps(data, sort_keys = True, ensure_ascii = False, separators = (',', ':'))
 
 
 def partition(xs, pred = identity):
@@ -50,3 +57,9 @@ def chunks(vs: Iterable[any], chunk_size: int, count: bool = False) -> Iterable[
             yield (i + 1 - len(chunk), i + 1), chunk
         else:
             yield chunk
+chunked = chunks
+
+
+def empty_iter(*_, **__):
+    return
+    yield
