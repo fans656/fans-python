@@ -26,7 +26,6 @@ class Target:
             args = (),
             kwargs  = {},
     ):
-        target_type = None
         if callable(source):
             impl = PythonCallableTarget
         elif isinstance(source, str):

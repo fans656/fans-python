@@ -21,3 +21,7 @@ def ensure_not_none(message):
             return ret
         return wrapped
     return deco
+
+
+def override(func):
+    return func

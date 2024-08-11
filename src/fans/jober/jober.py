@@ -120,7 +120,7 @@ class Jober:
         sched: str = None
         """
         target = Target.make(target, args, kwargs)
-        if target.type in TargetType.command:
+        if target.type == TargetType.command:
             make = self._make_process_job
         else:
             make = self._get_job_maker_by_mode(mode)
