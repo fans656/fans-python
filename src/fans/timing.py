@@ -46,10 +46,11 @@ class _timing:
 
     def __exit__(self, exc_cls, exc, trace):
         self.end = time.time()
-        if exc:
-            self.logger.info(f"... err{self.name_out} in {fmt.duration(self.elapsed)}")
-        else:
-            self.logger.info(f"... end{self.name_out} in {fmt.duration(self.elapsed)}")
+        if self.name:
+            if exc:
+                self.logger.info(f"... err{self.name_out} in {fmt.duration(self.elapsed)}")
+            else:
+                self.logger.info(f"... end{self.name_out} in {fmt.duration(self.elapsed)}")
 
     def __call__(self, func):
         """

@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 
 class Persist:
 
-    def load(self, path, hint, **kwargs):
+    def load(self, path, hint = None, **kwargs):
         with path.open(encoding = 'utf-8') as f:
             return json.load(f, **kwargs)
 

@@ -1,5 +1,7 @@
 import importlib
 
+from deepmerge import conservative_merger
+
 from fans.path.enhanced import Path
 
 from . import convert
@@ -47,10 +49,45 @@ class Store:
         self.path.ensure_parent()
         return self._get_persist(hint).extend(self.path, data, hint, **kwargs)
 
+    def update(self, data, hint=None, **kwargs):
+        hint = normalized_hint(hint)
+        self.path.ensure_parent()
+        return self._get_persist(hint).update(self.path, data, hint, **kwargs)
+
     def readlines(self, convert = None):
         with self.path.open() as f:
             lines = f.readlines()
             return map(convert, lines) if convert else lines
+
+    def ensure_conf(self, default_value: dict = {}) -> dict:
+        """
+        Ensure path as a config file (YAML/JSON).
+
+        Params:
+            default_value - Default conf values.
+
+        Returns:
+            the config dict
+
+        Sample usages:
+
+            conf = store.ensure_conf({
+                'username': 'admin',
+                'password': lambda: uuid.uuid4().hex,
+            })
+        """
+        default_value = eval_lambda_field(default_value)
+
+        persist = self._get_persist()
+        if self.path.exists():
+            conf = persist.load(self.path)
+            conservative_merger.merge(conf, default_value)
+        else:
+            conf = default_value
+
+        self.save(conf)
+
+        return conf
 
     def _get_persist(self, hint: dict = None):
         persist = None
@@ -111,6 +148,16 @@ def normalized_hint(hint):
         return hint
     else:
         raise ValueError(f"invalid hint {hint}")
+
+
+def eval_lambda_field(data: dict):
+    ret = dict(data)
+    for key, value in ret.items():
+        if isinstance(value, dict):
+            ret[key] = eval_lambda_field(value)
+        elif callable(value):
+            ret[key] = value()
+    return ret
 
 
 json_persist = PersistGetter('fans.store.persists.json_persist')

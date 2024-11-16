@@ -1,4 +1,4 @@
-from typing import Iterable
+from typing import Iterable, List
 
 
 def vectorized(obj, **kwargs):
@@ -27,7 +27,7 @@ class Vectorized:
     def __getattr__(self, key) -> any:
         return self.__class__(getattr(x, key, None) for x in self.__xs)
 
-    def __call__(self, *args, **kwargs) -> list[any]:
+    def __call__(self, *args, **kwargs) -> List[any]:
         return self.__class__(list(x(*args, **kwargs) for x in self.__xs))
 
     def __repr__(self):

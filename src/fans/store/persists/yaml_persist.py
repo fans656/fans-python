@@ -10,7 +10,7 @@ class Persist:
         except:
             return kwargs.get('default')
 
-    def load(self, path, hint, **kwargs):
+    def load(self, path, hint = None, **kwargs):
         try:
             with path.open() as f:
                 return yaml.safe_load(f, **kwargs)
@@ -19,3 +19,6 @@ class Persist:
                 return {}
             else:
                 raise
+
+    def update(self, path, update, hint=None, **kwargs):
+        self.save(path, {**self.load(path, hint=hint), **update}, hint=hint)
