@@ -1,0 +1,4 @@
+libs:
+  fans:
+    type: pip
+    root: fans
