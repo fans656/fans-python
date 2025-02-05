@@ -1,3 +1,4 @@
+import pytest
 import peewee
 
 from fans.db.migrate import sync, Model
@@ -57,28 +58,51 @@ def test_rename_column():
     assert 'one' not in names
 
 
-def test_change_primary_key():
-    database = peewee.SqliteDatabase(':memory:')
-    base = type('Base', (peewee.Model,), {'Meta': type('Meta', (), {'database': database})})
-    src = type('Foo', (base,), {})
-    dst = type('Foo', (base,), {'code': peewee.TextField(primary_key = True)})
-    database.create_tables([src])
-    sync(dst)
-    assert database.get_primary_keys('foo') == ['code']
+class Test_change_primary_key:
 
-    database = peewee.SqliteDatabase(':memory:')
-    src = type('Foo', (peewee.Model,), {})
-    dst = type('Foo', (peewee.Model,), {
-        'Meta': type('Meta', (), {
-            'primary_key': peewee.CompositeKey('code', 'name'),
-        }),
-        'code': peewee.TextField(),
-        'name': peewee.TextField(),
-    })
-    database.bind([src, dst])
-    database.create_tables([src])
-    sync(dst)
-    assert database.get_primary_keys('foo') == ['code', 'name']
+    def test_add_field(self, make_models):
+        src, dst, database = make_models({
+        }, {
+            'code': peewee.TextField(primary_key=True),
+        })
+        sync(dst)
+        assert database.get_primary_keys('item') == ['code']
+
+    def test_add_composite_key(self, make_models):
+        src, dst, database = make_models({
+        }, {
+            'Meta': type('Meta', (), {
+                'primary_key': peewee.CompositeKey('code', 'name'),
+            }),
+            'code': peewee.TextField(),
+            'name': peewee.TextField(),
+        })
+        sync(dst)
+        assert database.get_primary_keys('item') == ['code', 'name']
+
+    def test_change_composite_key_with_data(self, make_models):
+        src, dst, database = make_models({
+            'Meta': type('Meta', (), {
+                'primary_key': peewee.CompositeKey('foo', 'bar'),
+            }),
+            'foo': peewee.IntegerField(),
+            'bar': peewee.TextField(),
+        }, {
+            'Meta': type('Meta', (), {
+                'primary_key': peewee.CompositeKey('foo', 'bar', 'baz'),
+            }),
+            'foo': peewee.IntegerField(),
+            'bar': peewee.TextField(),
+            'baz': peewee.TextField(null=True),
+        })
+        src.insert_many([
+            {'foo': 1, 'bar': 'one'},
+            {'foo': 2, 'bar': 'two'},
+        ]).execute()
+        sync(dst)
+        assert database.get_primary_keys('item') == ['foo', 'bar', 'baz']
+        assert dst.select().where((dst.foo == 1) & (dst.bar == 'one')).count() == 1
+        assert dst.select().where((dst.foo == 2) & (dst.bar == 'two')).count() == 1
 
 
 def test_add_columns():
@@ -148,3 +172,22 @@ def test_del_indexes():
     assert ('code',) not in indexes
     assert ('name',) in indexes
     assert ('code', 'name') not in indexes
+
+
+@pytest.fixture
+def make_models():
+    database = peewee.SqliteDatabase(':memory:')
+    base = type('Base', (peewee.Model,), {'Meta': type('Meta', (), {'database': database})})
+
+    def _make_model(attrs):
+        return type('Item', (base,), attrs)
+
+    def _make_models(src_attrs, dst_attrs):
+        src = _make_model(src_attrs)
+        dst = _make_model(dst_attrs)
+
+        database.create_tables([src])
+
+        return src, dst, database
+
+    return _make_models

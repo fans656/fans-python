@@ -8,7 +8,7 @@ class Test_with:
     def test_simple(self, caplog):
         with timing():
             pass
-        assert 'end in ' in caplog.records[0].message
+        assert not caplog.records
 
     def test_name(self, caplog):
         with timing('foo'):
@@ -42,4 +42,4 @@ class Test_exception:
         with pytest.raises(Exception):
             with timing():
                 raise Exception()
-        assert 'err' in caplog.records[0].message
+        assert not caplog.records

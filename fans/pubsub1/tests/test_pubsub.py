@@ -3,7 +3,7 @@ import threading
 
 import pytest
 
-from fans.pubsub import pubsub, PubSub
+from fans.pubsub1 import pubsub, PubSub
 
 
 def test_single_thread():

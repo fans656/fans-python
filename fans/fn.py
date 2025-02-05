@@ -38,7 +38,10 @@ def partition(xs, pred = identity):
     return ts, fs
 
 
-def omit(d: dict, keys: Iterable[str]):
+def omit(d: dict, keys: Iterable[str]) -> dict:
+    """
+    Take a dict and a set of keys, return a dict with the given keys omitted.
+    """
     return {key: value for key, value in d.items() if key not in keys}
 
 

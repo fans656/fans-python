@@ -1,3 +1,5 @@
+import uuid
+import contextlib
 from typing import List, Tuple
 
 import peewee
@@ -24,9 +26,21 @@ class Model:
             else:
                 self.column_renames.append((src_name, dst_name))
 
+    @contextlib.contextmanager
+    def using_table_name(self, new_table_name):
+        old_table_name = self.table_name
+        self.table_name = new_table_name
+        yield
+        self.table_name = old_table_name
+
     @property
     def src_col_names(self):
         return [col.name for col in self.database.get_columns(self.table_name)]
+
+    @property
+    def src_col_names_sql(self):
+        names = [d for d in self.src_col_names if d != 'id']
+        return ','.join(names)
 
     @property
     def dst_col_names(self):
@@ -83,7 +97,20 @@ def sync_model(model: peewee.Model):
                 database.execute_sql(f'drop table {model.table_name}')
                 database.create_tables([model.model])
             else:
-                raise RuntimeError(f"cannot change primary keys on non-empty table")
+                tmp_name = f'tmp_{uuid.uuid4().hex}'
+                table_name = model.table_name
+
+                database.execute_sql(f'alter table {table_name} rename to {tmp_name}')
+                database.create_tables([model.model])
+
+                with model.using_table_name(tmp_name):
+                    sql = f'''
+                        insert into {table_name} ({model.src_col_names_sql})
+                        select {model.src_col_names_sql} from {tmp_name}
+                    '''
+                    database.execute_sql(sql)
+
+                database.execute_sql(f'drop table {tmp_name}')
 
         src_col_names = set(model.src_col_names)
         dst_col_names = set(model.dst_col_names)

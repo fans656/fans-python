@@ -1,10 +1,12 @@
-#! /usr/bin/env python3.10
+#! /usr/bin/env python3
+print('1')
 import os
 import sys
 import json
 
 import requests
 from sseclient import SSEClient
+print('2')
 
 
 def get_cwd():

@@ -230,7 +230,10 @@ class Node(NamespacedPathImpl):
             self.path.ensure_dir()
         else:
             if (content := self.data.get('content')):
-                with self.path.open('w') as f:
+                if isinstance(content, pathlib.Path):
+                    with content.open('rb') as f:
+                        content = f.read()
+                with self.path.open('w' if isinstance(content, str) else 'wb') as f:
                     f.write(content)
             elif self.data.get('create') == 'file':
                 self.path.touch()
