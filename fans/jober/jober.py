@@ -1,5 +1,6 @@
 import uuid
 import queue
+import inspect
 import traceback
 import threading
 import functools
@@ -299,7 +300,7 @@ def _run_job(*, target, job_id, run_id, prepare):
         _events_queue.put(eventer.begin())
         if prepare:
             prepare()
-        target()
+        _consumed(target())
     except:
         print(traceback.format_exc()) # output traceback in job run thread
         _events_queue.put(eventer.error())
@@ -317,6 +318,13 @@ def _prepare_thread_run(
         run_id = run_id,
         module_logging_levels = module_logging_levels,
     )
+
+
+def _consumed(value):
+    if inspect.isgenerator(value):
+        # ensure a generator function is iterated
+        for _ in value:
+            pass
 
 
 _events_queue = None

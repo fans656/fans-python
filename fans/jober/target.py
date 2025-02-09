@@ -60,7 +60,7 @@ class Target:
 
     def __call__(self):
         self.prepare_call()
-        self.do_call()
+        return self.do_call()
 
     @abstractmethod
     def prepare_call(self):
@@ -77,7 +77,7 @@ class CallableTarget(Target):
         self.func = None
 
     def do_call(self):
-        self.func(*self.args, **self.kwargs)
+        return self.func(*self.args, **self.kwargs)
 
 
 class PythonCallableTarget(CallableTarget):
