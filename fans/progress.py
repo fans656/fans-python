@@ -1,9 +1,12 @@
 import time
 import threading
+import contextlib
 from typing import Iterable
+from pathlib import Path
 
 from fans.logger import get_logger
 from fans import fmt
+from fans.bunch import bunch
 
 
 default_logger = get_logger(__name__)
@@ -15,6 +18,8 @@ def progress(*args, **kwargs):
         return _progress(*args, **kwargs)
     elif isinstance(args[0], list) or hasattr(args[0], '__len__') and isinstance(args[0], Iterable):
         return iter_on_list(*args, **kwargs)
+    elif isinstance(args[0], Path):
+        return FileProgress(args[0])
     elif len(args) >= 2 and isinstance(args[0], Iterable) and isinstance(args[1], int):
         return iter_on_list(args[0], *args[2:], n = args[1], **kwargs)
     else:
@@ -112,3 +117,14 @@ def iter_on_list(xs, n = None, *args, **kwargs):
     with _progress(n or len(xs), *args, **kwargs) as pro:
         for x in pro.iter(xs):
             yield x, pro
+
+
+@contextlib.contextmanager
+def FileProgress(path: Path):
+    stat = bunch(total=path.stat().st_size, done=0)
+
+    def progress(delta):
+        stat.done += delta
+        return 100.0 * stat.done / stat.total
+
+    yield progress
