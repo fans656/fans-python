@@ -8,9 +8,9 @@ class Meta(dict):
     Usage:
 
         from fans.path import Path
-        meta = Path('meta.json').as_meta(default = lambda: {'foo': 3})
-        meta['bar'] = 5
-        meta.save({'baz': 8})
+        meta = Path('meta.json').as_meta()  # >>> {'foo': 3}
+        meta['bar'] = 5  # >>> {'foo': 3, 'bar': 5}
+        meta.save()
     """
 
     def __init__(
@@ -18,55 +18,28 @@ class Meta(dict):
             path: 'fans.Path',
             default: Callable[[], dict] = lambda: {},
             before_save: Callable[[dict], None] = noop,
-            tmpdir: 'fans.Path' = None,
+            save_kwargs: dict = {},
     ):
         self.path = path
-        self.default = default
-        self.loaded = False
         self.before_save = before_save
-        self.tmpdir = tmpdir
-
-    def save(self, update: dict = None):
-        if not self.loaded:
-            self.load()
-        meta = {**self, **(update or {})}
-        self.before_save(meta)
-        self.update(meta)
-        self._save()
-
-    def load(self):
+        self.save_kwargs = save_kwargs
+        
         try:
-            self.update(self.path.load(hint = 'json'))
+            self.update(self.path.load(hint='json'))
         except:
-            self.update(self.default())
-            self._save()
-        self.loaded = True
-        return self
+            self.update(_to_value(default))
 
-    def get(self, *args, **kwargs):
-        if not self.loaded:
-            self.load()
-        return super().get(*args, **kwargs)
+    def save(self, **kwargs):
+        self.before_save(self)
+        self.path.save(self, **{
+            **{'hint': {'persist': 'json'}, 'indent': 2, 'ensure_ascii': False},
+            **self.save_kwargs,
+            **kwargs,
+        })
 
-    def getitems(self):
-        if not self.loaded:
-            self.load()
-        return super().getitems()
 
-    def values(self):
-        if not self.loaded:
-            self.load()
-        return super().values()
-
-    def _save(self):
-        self.path.save(
-            self,
-            hint = {'persist': 'json', 'tmpdir': self.tmpdir},
-            indent = 2,
-            ensure_ascii = False,
-        )
-
-    def __getitem__(self, *args, **kwargs):
-        if not self.loaded:
-            self.load()
-        return super().__getitem__(*args, **kwargs)
+def _to_value(src):
+    if callable(src):
+        return src()
+    else:
+        return src

@@ -1,5 +1,6 @@
 import sys
 import types
+import shutil
 import pathlib
 from typing import Callable
 
@@ -9,11 +10,11 @@ from .meta import Meta
 class Path(type(pathlib.Path())):
 
     def ensure_parent(self):
-        self.parent.mkdir(parents = True, exist_ok = True)
+        self.parent.mkdir(parents=True, exist_ok=True)
         return self
 
     def ensure_dir(self):
-        self.mkdir(parents = True, exist_ok = True)
+        self.mkdir(parents=True, exist_ok=True)
         return self
 
     def ensure_file(self):
@@ -23,11 +24,13 @@ class Path(type(pathlib.Path())):
         return self
 
     def remove(self):
-        if self.exists():
+        if self.is_file():
             self.unlink()
+        elif self.is_dir():
+            shutil.rmtree(self)
 
-    def as_meta(self, **kwargs):
-        return Meta(self, **kwargs)
+    def as_meta(self, *args, **kwargs):
+        return Meta(self, *args, **kwargs)
 
     def with_tree(self, *args, **kwargs) -> 'fans.path.paths.NamespacedPath':
         from .paths import make_paths

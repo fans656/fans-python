@@ -1,6 +1,7 @@
 import time
 import queue
 import asyncio
+from typing import Callable, Optional
 
 from fans.logger import get_logger
 
@@ -38,10 +39,10 @@ class Run:
     def finished(self):
         return self.status in finished_statuses
 
-    async def iter_events_async(self, should_stop = None):
+    async def iter_events_async(self, should_stop: Optional[Callable[[], bool]] = None):
         content_event = None
         content = ''
-        async for event in self._iter_events_async(should_stop = should_stop):
+        async for event in self._iter_events_async(should_stop):
             if event['type'] == EventType.job_run_output:
                 content += event['content']
                 content_event = event
@@ -54,8 +55,8 @@ class Run:
                     yield {**content_event, 'content': content}
                 yield event
 
-    async def _iter_events_async(self, should_stop = None):
-        while not self.finished:
+    async def _iter_events_async(self, should_stop: Optional[Callable[[], bool]] = None):
+        while True:
             try:
                 event = self._events_queue.get(False)
             except queue.Empty:

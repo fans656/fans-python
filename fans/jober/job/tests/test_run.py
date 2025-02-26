@@ -13,5 +13,13 @@ class Test_run:
         run._on_run_event({'type': EventType.job_run_output, 'content': '\n'})
         run._on_run_event({'type': EventType.job_run_output, 'content': 'world'})
         run._on_run_event({'type': EventType.job_run_done})
-        events = [d async for d in run.iter_events_async() if d['type'] == EventType.job_run_output]
+        
+        done = False
+        events = []
+        async for event in run.iter_events_async():
+            match event['type']:
+                case EventType.job_run_output:
+                    events.append(event)
+                case EventType.job_run_done:
+                    done = True
         assert events[-1]['content'] == 'world'
