@@ -23,16 +23,15 @@ class Meta(dict):
         self.path = path
         self.before_save = before_save
         self.save_kwargs = save_kwargs
-        
+
         try:
-            self.update(self.path.load(hint='json'))
+            self.update(self.path.load())
         except:
             self.update(_to_value(default))
 
     def save(self, **kwargs):
         self.before_save(self)
         self.path.save(self, **{
-            **{'hint': {'persist': 'json'}, 'indent': 2, 'ensure_ascii': False},
             **self.save_kwargs,
             **kwargs,
         })

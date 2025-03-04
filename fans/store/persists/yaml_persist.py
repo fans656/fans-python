@@ -10,9 +10,9 @@ class Persist:
         except:
             return kwargs.get('default')
 
-    def load(self, path, hint = None, **kwargs):
+    def load(self, path, hint = None, encoding='utf-8', **kwargs):
         try:
-            with path.open() as f:
+            with path.open(encoding=encoding) as f:
                 return yaml.safe_load(f, **kwargs)
         except Exception:
             if hint and hint.get('silent'):
