@@ -2,6 +2,8 @@ from fans.bunch import bunch
 
 
 ports = bunch({
+    'fme_web':              6560,
+    'fme':                  6561,
     'quantix':              6562,
 
     'winslave':             15500,
@@ -17,8 +19,6 @@ ports = bunch({
     'auth_res_back':        16512,
     'auth_res_web':         16513,
 
-    'doy_back':             16520,
-    'doy_web':              16521,
-
-    'duf_back':             16530,
+    'duf_back':             16520,
+    'duf_web':              16521,
 })
