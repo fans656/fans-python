@@ -1,3 +1,1 @@
-source ~/.bashrc
-shopt -s expand_aliases
-doy2 publish fans
+uv run -m duf publish
