@@ -1,14 +1,16 @@
+import time
 import uuid
 import queue
 import inspect
 import traceback
 import threading
 import functools
-import multiprocessing as mp
+import multiprocessing
 from pathlib import Path
 from enum import Enum
 from typing import Union, Callable, List, Iterable
 
+import yaml
 from fans.bunch import bunch
 from fans.logger import get_logger
 
@@ -24,21 +26,25 @@ logger = get_logger(__name__)
 
 class Jober:
 
-    def __init__(self, **conf_spec):
+    def __init__(
+            self,
+            conf_path: str = None,
+    ):
         """
-        See `make_conf` for args doc
+        conf_path: str - config yaml path, read config dict from the yaml content
         """
-        self.conf = conf = make_conf(**conf_spec)
-
-        self.root = conf.root
-        self.n_threads = conf.n_threads
+        conf = dict(default_conf)
+        if conf_path:
+            with Path(conf_path).open() as f:
+                conf.update(yaml.safe_load(f))
+        self.conf = bunch(conf)
 
         self._id_to_job = {}
-        self._mp_queue = mp.Queue()
+        self._mp_queue = multiprocessing.Queue()
         self._th_queue = queue.Queue()
 
         self._sched = make_sched(**{
-            **conf,
+            **self.conf,
             'thread_pool_kwargs': {
                 'initializer': _init_pool,
                 'initargs': (self._th_queue,),
@@ -50,10 +56,10 @@ class Jober:
         })
 
         self._process_events_thread = threading.Thread(
-            target = functools.partial(self._collect_events, self._mp_queue), daemon = True)
+            target=functools.partial(self._collect_events, self._mp_queue), daemon=True)
 
         self._thread_events_thread = threading.Thread(
-            target = functools.partial(self._collect_events, self._th_queue), daemon = True)
+            target=functools.partial(self._collect_events, self._th_queue), daemon=True)
 
         self._listeners = set()
 
@@ -97,6 +103,9 @@ class Jober:
             return False
         del self._id_to_job[job_id]
         return True
+    
+    def run_for_a_while(self, seconds: float = 0.001):
+        time.sleep(seconds)
 
     # TODO: mode should not be in Job
     # TODO: sched can be separated out from Job?
@@ -213,7 +222,7 @@ class Jober:
                 return self._make_thread_job
             case _:
                 return (
-                    conf_default.default_mode == 'thread' and
+                    default_conf.default_mode == 'thread' and
                     self._make_thread_job or
                     self._make_process_job
                 )
@@ -244,49 +253,6 @@ class Jober:
                     listener(event)
                 except:
                     traceback.print_exc()
-
-
-def make_conf(
-        conf_path: str = ...,
-        root: str = ...,
-        default_mode: str = ...,
-        n_threads: int = ...,
-        n_processes: int = ...,
-):
-    """
-    conf_path: str - config yaml path, read config dict from the yaml content
-    root: str - root directory path, intermediate files will be store here
-    default_mode: str - default execution mode to use ('thread'/'process')
-    n_threads: int - number of threads to use for thread pool
-    n_processes: int - number of processes to use for process pool
-    """
-    conf = {}
-
-    if conf_path is not ...:
-        import yaml
-        try:
-            with Path(conf_path).open() as f:
-                conf = yaml.safe_load(f)
-                assert isinstance(conf, dict)
-        except Exception as exc:
-            logger.warning(f'error reading conf from "{conf_path}": {exc}')
-            conf = {}
-
-    eor = lambda val, name: conf.get(name) if val is ... else val
-
-    return bunch(
-        root = eor(root, 'root'),
-        default_mode = eor(default_mode, 'default_mode') or conf_default.default_mode,
-        n_threads = eor(n_threads, 'n_threads') or conf_default.n_threads,
-        n_processes = eor(n_processes, 'n_processes') or conf_default.n_processes,
-    )
-
-
-class conf_default:
-
-    default_mode = 'thread'
-    n_threads = 4
-    n_processes = 4
 
 
 def _init_pool(queue: 'queue.Queue|multiprocessing.Queue'):
@@ -328,3 +294,9 @@ def _consumed(value):
 
 
 _events_queue = None
+
+default_conf = bunch({
+    'default_mode': 'thread',
+    'n_threads': 32,
+    'n_processes': 32,
+})

@@ -3,11 +3,8 @@ import threading
 import multiprocessing as mp
 
 import pytz
+from fans.bunch import bunch
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.date import DateTrigger
-from apscheduler.triggers.interval import IntervalTrigger
-from apscheduler.events import EVENT_JOB_REMOVED
 
 from .base import Base
 
@@ -26,19 +23,19 @@ class ApschedulerSched(Base):
             **_,
     ):
         self._sched = BackgroundScheduler(
-            executors = {
-                'thread': {
+            executors={
+                EXECUTOR_NAME.thread: {
                     'class': 'apscheduler.executors.pool:ThreadPoolExecutor',
                     'max_workers': n_threads,
                     'pool_kwargs': thread_pool_kwargs,
                 },
-                'process': {
+                EXECUTOR_NAME.process: {
                     'class': 'apscheduler.executors.pool:ProcessPoolExecutor',
                     'max_workers': n_processes,
                     'pool_kwargs': process_pool_kwargs,
                 },
             },
-            timezone = pytz.timezone('Asia/Shanghai'),
+            timezone=pytz.timezone('Asia/Shanghai'),
         )
 
     def start(self):
@@ -47,7 +44,7 @@ class ApschedulerSched(Base):
     def stop(self):
         self._sched.shutdown()
 
-    def run_singleshot(self, func, args = (), kwargs = {}, mode = None):
+    def run_singleshot(self, func, args=(), kwargs={}, mode=None):
         job = self._sched.add_job(
             func,
             args = args,
@@ -59,8 +56,14 @@ class ApschedulerSched(Base):
 def get_executor_by_mode(mode: str):
     match mode:
         case 'thread':
-            return 'thread'
+            return EXECUTOR_NAME.thread
         case 'process':
-            return 'process'
+            return EXECUTOR_NAME.process
         case _:
-            return 'thread'
+            return EXECUTOR_NAME.thread
+
+
+EXECUTOR_NAME = bunch({
+    'thread': 'thread',
+    'process': 'process',
+})

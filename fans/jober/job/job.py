@@ -2,7 +2,7 @@ import uuid
 import queue
 import asyncio
 from abc import abstractmethod
-from typing import Iterable
+from typing import Iterable, Optional
 
 from fans.logger import get_logger
 
@@ -27,6 +27,7 @@ class Job:
     ):
         self.target = target
         self.id = uuid.uuid4().hex
+        self.job_id = self.id
         self.name = name
         self.extra = extra
 
@@ -74,11 +75,14 @@ class Job:
 
     @property
     def last_run(self):
-        return self._id_to_run.get(self._last_run_id) or dummy_run
+        return self.get_run(self._last_run_id) or dummy_run
 
     @property
     def source(self) -> str:
         return self.target.source
+    
+    def get_run(self, run_id: str) -> Optional[Run]:
+        return self._id_to_run.get(run_id)
 
     def new_run(self):
         run_id = uuid.uuid4().hex
