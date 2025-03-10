@@ -38,6 +38,10 @@ class Run:
     @property
     def finished(self):
         return self.status in finished_statuses
+    
+    def wait(self, interval=0.01):
+        while self.status in ('init', 'running'):
+            time.sleep(interval)
 
     async def iter_events_async(self, should_stop: Optional[Callable[[], bool]] = None):
         content_event = None

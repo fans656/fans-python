@@ -1,3 +1,5 @@
+import os
+import sys
 import shlex
 import runpy
 import hashlib
@@ -69,6 +71,18 @@ class Target:
     @abstractmethod
     def do_call(self):
         pass
+    
+    @property
+    def kwargs_as_cmdline_options(self):
+        def gen():
+            for key, value in self.kwargs.items():
+                yield f'--{key}'
+                yield f'{value}'
+        return list(gen())
+    
+    @property
+    def cwd(self):
+        return os.getcwd()  # TODO: configurable
 
 
 class CallableTarget(Target):
@@ -126,7 +140,22 @@ class PythonModuleTarget(Target):
     type = TargetType.python_module
 
     def do_call(self):
-        return runpy.run_module(self.source, {}, run_name = '__main__')
+        proc = subprocess.Popen(
+            [sys.executable, '-m', self.source, *self.args, *self.kwargs_as_cmdline_options],
+            cwd=self.cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, # redirect to stdout
+            bufsize=1,
+            encoding='utf-8',
+            universal_newlines=True,
+        )
+        try:
+            for line in iter(proc.stdout.readline, ''):
+                print(line, end='')
+        except KeyboardInterrupt:
+            pass
+        finally:
+            proc.wait()
 
 
 class CommandTarget(Target):

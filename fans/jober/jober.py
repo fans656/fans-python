@@ -62,6 +62,8 @@ class Jober:
             target=functools.partial(self._collect_events, self._th_queue), daemon=True)
 
         self._listeners = set()
+        
+        self.started = False
 
     def run_job(self, *args, **kwargs) -> 'Run':
         job = self.add_job(*args, **kwargs)
@@ -141,14 +143,18 @@ class Jober:
         )
 
     def start(self):
-        self._sched.start()
-        self._thread_events_thread.start()
-        self._process_events_thread.start()
-        util.enable_proxy()
+        if not self.started:
+            self._sched.start()
+            self._thread_events_thread.start()
+            self._process_events_thread.start()
+            util.enable_proxy()
+            self.started = True
 
     def stop(self):
-        self._sched.stop()
-        util.disable_proxy()
+        if self.started:
+            self._sched.stop()
+            util.disable_proxy()
+            self.started = False
 
     def get_job(self, job_id: str) -> 'Job':
         """
