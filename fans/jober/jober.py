@@ -84,6 +84,7 @@ class Jober:
             },
             mode = job.mode,
         )
+        self.start()  # ensure started
         return run
 
     def add_job(self, *args, **kwargs) -> 'Job':

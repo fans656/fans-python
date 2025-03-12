@@ -1,26 +1,24 @@
 import pytest
+
+from fans.jober import Jober
 from fans.jober.conftest import parametrized
 
 
 class Test_run:
 
-    #@parametrized()
-    #def test_foo(self, conf, jober):
-    #    run = jober.run_job(conf.target, args=('foo',))
-    #    run.wait()
-    #    assert run.output == 'foo\n'
+    @parametrized()
+    def test_run_job(self, conf, jober):
+        """Can run job and collect output"""
+        run = jober.run_job(conf.target, args=('foo',))
+        run.wait()
+        assert run.output == 'foo\n'
 
-    def test_run_job(self, mocker, jober):
-        """Can run a function as job"""
-        func = mocker.Mock()
-        jober.run_job(func).wait()
-        func.assert_called()
-
-    def test_run_job_with_args_and_kwargs(self, mocker, jober):
+    @parametrized()
+    def test_run_job_with_args_and_kwargs(self, conf, jober):
         """Can pass args and kwargs to a function job"""
-        func = mocker.Mock()
-        jober.run_job(func, args=[3, 5], kwargs={'foo': 'bar'}).wait()
-        func.assert_called_with(3, 5, foo='bar')
+        run = jober.run_job(conf.target, args=('foo',), kwargs={'count': 2})
+        run.wait()
+        assert run.output == 'foo\nfoo\n'
 
     def test_run_id_and_job_id(self, jober, mocker):
         """Get run ID and job ID"""

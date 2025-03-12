@@ -157,6 +157,8 @@ class PythonModuleTarget(Target):
         finally:
             proc.wait()
 
+        return proc.returncode
+
 
 class CommandTarget(Target):
 

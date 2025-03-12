@@ -32,10 +32,7 @@ class Test_target_make:
     def test_module(self):
         target = Target.make('fans.jober.tests.sample_target')
         assert target.type == TargetType.python_module
-        proc = mp.Process(target = target.do_call)
-        proc.start()
-        proc.join()
-        assert proc.exitcode == 56
+        assert target.do_call() == 56
 
     def test_script(self):
         target = Target.make(f'{Path(__file__).parent / "sample_target.py"}')

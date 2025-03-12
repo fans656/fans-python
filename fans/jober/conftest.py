@@ -1,3 +1,4 @@
+import contextlib
 import multiprocessing
 
 import pytest
@@ -16,12 +17,13 @@ multiprocessing.set_start_method("spawn", force=True)
 @pytest.fixture
 def jober():
     jober = Jober()
-    jober.start()
-    return jober
+    yield jober
+    jober.stop()
 
 
-def echo_func(message: str):
-    print(message)
+def echo_func(message: str, count: int = 1):
+    for _ in range(count):
+        print(message)
 
 
 def parametrized():
@@ -35,4 +37,8 @@ def parametrized():
             'target': 'fans.jober.tests.samples.echo',
         },
     ]
-    return pytest.mark.parametrize('conf', map(bunch, confs))
+
+    def id_func(conf):
+        return f'{conf.target_type}'
+
+    return pytest.mark.parametrize('conf', map(bunch, confs), ids=id_func)
