@@ -26,34 +26,60 @@ logger = get_logger(__name__)
 
 class Jober:
 
+    _instance = None
+
+    @staticmethod
+    def get_instance(*args, **kwargs):
+        if Jober._instance is None:
+            Jober._instance = Jober(*args, **kwargs)
+        elif args or kwargs:
+            logger.warning(
+                f'calling Jober.get_instance with arguments but instance already exists')
+        return Jober._instance
+
+    @staticmethod
+    def make(
+            conf: dict|str|Path = {},
+    ):
+        kwargs = {}
+
+        if isinstance(conf, (str, Path)):
+            with Path(conf).open() as f:
+                conf = yaml.safe_load(f)
+        else:
+            raise TypeError(f'invalid conf: {conf}')
+
+        if 'default_mode' in conf:
+            kwargs['default_mode'] = conf['default_mode']
+        if 'n_threads' in conf:
+            kwargs['n_threads'] = conf['n_threads']
+        if 'n_processes' in conf:
+            kwargs['n_processes'] = conf['n_processes']
+
+        return Jober(**kwargs)
+
     def __init__(
             self,
-            conf_path: str = None,
+            default_mode: str = 'thread',
+            n_threads: int = 32,
+            n_processes: int = 32,
     ):
-        """
-        conf_path: str - config yaml path, read config dict from the yaml content
-        """
-        conf = dict(default_conf)
-        if conf_path:
-            with Path(conf_path).open() as f:
-                conf.update(yaml.safe_load(f))
-        self.conf = bunch(conf)
-
         self._id_to_job = {}
         self._mp_queue = multiprocessing.Queue()
         self._th_queue = queue.Queue()
 
-        self._sched = make_sched(**{
-            **self.conf,
-            'thread_pool_kwargs': {
+        self._sched = make_sched(
+            n_threads=n_threads,
+            thread_pool_kwargs={
                 'initializer': _init_pool,
                 'initargs': (self._th_queue,),
             },
-            'process_pool_kwargs': {
+            n_processes=n_processes,
+            process_pool_kwargs={
                 'initializer': _init_pool,
                 'initargs': (self._mp_queue,),
             },
-        })
+        )
 
         self._process_events_thread = threading.Thread(
             target=functools.partial(self._collect_events, self._mp_queue), daemon=True)
@@ -62,7 +88,7 @@ class Jober:
             target=functools.partial(self._collect_events, self._th_queue), daemon=True)
 
         self._listeners = set()
-        
+
         self.started = False
 
     def run_job(self, *args, **kwargs) -> 'Run':
@@ -106,7 +132,7 @@ class Jober:
             return False
         del self._id_to_job[job_id]
         return True
-    
+
     def run_for_a_while(self, seconds: float = 0.001):
         time.sleep(seconds)
 
@@ -301,9 +327,3 @@ def _consumed(value):
 
 
 _events_queue = None
-
-default_conf = bunch({
-    'default_mode': 'thread',
-    'n_threads': 32,
-    'n_processes': 32,
-})
