@@ -32,8 +32,10 @@ def setup_logging(module_levels = {}):
     global _setup_done
     root = logging.root
     # TODO: library should not set level, only app should
-    if root.level > logging.INFO:
+    if '-v' in sys.argv:
         root.setLevel(logging.INFO)
+    elif '-vv' in sys.argv:
+        root.setLevel(logging.DEBUG)
 
     Logger.reset_handlers()
 
