@@ -17,11 +17,14 @@ from fans.logger import get_logger
 from .sched import make_sched
 from .target import Target, TargetType
 from . import util
-from .job.job import Run
+from .job.job import Job, Run
 from .event import RunEventer
 
 
 logger = get_logger(__name__)
+
+
+DEFAULT_MODE = 'thread'
 
 
 class Jober:
@@ -60,7 +63,7 @@ class Jober:
 
     def __init__(
             self,
-            default_mode: str = 'thread',
+            default_mode: str = DEFAULT_MODE,
             n_threads: int = 32,
             n_processes: int = 32,
     ):
@@ -101,14 +104,11 @@ class Jober:
                 'target': job.target,
                 'job_id': run.job_id,
                 'run_id': run.run_id,
-                'prepare': job.mode == 'thread' and (
-                    lambda: _prepare_thread_run(
-                        self._th_queue, run.job_id, run.run_id,
-                        module_logging_levels = self._sched.module_logging_levels,
-                    )
-                ) or None,
+                'prepare': lambda: _prepare_thread_run(
+                    self._th_queue, run.job_id, run.run_id,
+                    module_logging_levels = self._sched.module_logging_levels,
+                )
             },
-            mode = job.mode,
         )
         self.start()  # ensure started
         return run
@@ -144,9 +144,9 @@ class Jober:
             args: tuple = (),
             kwargs: dict = {},
             *,
+            id: str = None,
             name: str = None,
             extra: any = None,
-            mode: str = None,
             sched: str = None,
     ) -> 'Job':
         """
@@ -155,19 +155,16 @@ class Jober:
         target: Union[str, Callable]
         args: tuple = None
         kwargs: dict = None
-        mode: str = None - 'thread'|'process'
         sched: str = None
         """
         target = Target.make(target, args, kwargs)
-        if target.type == TargetType.command:
-            make = self._make_process_job
-        else:
-            make = self._get_job_maker_by_mode(mode)
-        return make(
+        job = Job(
             target,
-            name = name,
-            extra = extra,
+            id=id,
+            name=name,
+            extra=extra,
         )
+        return job
 
     def start(self):
         if not self.started:
@@ -246,27 +243,6 @@ class Jober:
         listeners = set(self._listeners)
         listeners.discard(token)
         self._listeners = listeners
-
-    def _get_job_maker_by_mode(self, mode: str):
-        match mode:
-            case 'process':
-                return self._make_process_job
-            case 'thread':
-                return self._make_thread_job
-            case _:
-                return (
-                    default_conf.default_mode == 'thread' and
-                    self._make_thread_job or
-                    self._make_process_job
-                )
-
-    def _make_thread_job(self, target: 'FuncTarget', *args, **kwargs) -> 'Job':
-        from .job.thread_job import ThreadJob
-        return ThreadJob(target, *args, **kwargs)
-
-    def _make_process_job(self, target: 'ProcTarget', *args, **kwargs) -> 'Job':
-        from .job.process_job import ProcessJob
-        return ProcessJob(target, *args, **kwargs)
 
     def _collect_events(self, queue):
         while True:

@@ -27,6 +27,7 @@ class Target:
             source: Union[Callable, str, List[str]],
             args = (),
             kwargs  = {},
+            **extras,
     ):
         if callable(source):
             impl = PythonCallableTarget
@@ -53,12 +54,13 @@ class Target:
         else:
             raise ValueError(f'invalid target source "{source}"')
 
-        return impl(source, args, kwargs)
+        return impl(source, args, kwargs, extras=extras)
 
-    def __init__(self, source, args, kwargs):
+    def __init__(self, source, args, kwargs, extras):
         self.source = source
         self.args = args
         self.kwargs = kwargs
+        self.extras = extras
 
     def __call__(self):
         self.prepare_call()
@@ -83,6 +85,25 @@ class Target:
     @property
     def cwd(self):
         return os.getcwd()  # TODO: configurable
+
+
+class CommandTarget(Target):
+
+    type = TargetType.command
+
+    def do_call(self):
+        cmd = self.source
+
+        if 'shell' not in self.extras:
+
+            if isinstance(cmd, str):
+                cmd = shlex.split(cmd)
+
+            cmd = [*cmd, *self.args, *self.kwargs_as_cmdline_options]
+
+        proc = subprocess.Popen(cmd, **self.extras)
+        proc.wait()
+        return proc.returncode
 
 
 class CallableTarget(Target):
@@ -127,21 +148,12 @@ class PythonModuleCallableTarget(CallableTarget):
         self.func = getattr(module, func_name)
 
 
-class PythonScriptTarget(Target):
-
-    type = TargetType.python_script
+class PythonExecutableTarget(Target):
 
     def do_call(self):
-        return runpy.run_path(self.source, {}, run_name = '__main__')
-
-
-class PythonModuleTarget(Target):
-
-    type = TargetType.python_module
-
-    def do_call(self):
+        cmd = [sys.executable, *self.get_execute_args(), *self.args, *self.kwargs_as_cmdline_options]
         proc = subprocess.Popen(
-            [sys.executable, '-m', self.source, *self.args, *self.kwargs_as_cmdline_options],
+            cmd,
             cwd=self.cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, # redirect to stdout
@@ -160,14 +172,17 @@ class PythonModuleTarget(Target):
         return proc.returncode
 
 
-class CommandTarget(Target):
+class PythonScriptTarget(PythonExecutableTarget):
 
-    type = TargetType.command
+    type = TargetType.python_script
 
-    def do_call(self):
-        cmd = self.source
-        if isinstance(cmd, str):
-            cmd = shlex.split(cmd)
-        proc = subprocess.Popen(cmd)
-        proc.wait()
-        return proc.returncode
+    def get_execute_args(self):
+        return (self.source,)
+
+
+class PythonModuleTarget(PythonExecutableTarget):
+
+    type = TargetType.python_module
+
+    def get_execute_args(self):
+        return ('-m', self.source,)

@@ -22,11 +22,12 @@ class Job:
     def __init__(
             self,
             target: any,
+            id: str = None,
             name: str = None,
             extra: any = None,
     ):
         self.target = target
-        self.id = uuid.uuid4().hex
+        self.id = id or uuid.uuid4().hex
         self.job_id = self.id
         self.name = name
         self.extra = extra

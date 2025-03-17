@@ -44,12 +44,12 @@ class ApschedulerSched(Base):
     def stop(self):
         self._sched.shutdown()
 
-    def run_singleshot(self, func, args=(), kwargs={}, mode=None):
+    def run_singleshot(self, func, args=(), kwargs={}):
         job = self._sched.add_job(
             func,
-            args = args,
-            kwargs = kwargs,
-            executor = get_executor_by_mode(mode),
+            args=args,
+            kwargs=kwargs,
+            executor=EXECUTOR_NAME.thread,
         )
 
 
