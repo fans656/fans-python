@@ -5,9 +5,10 @@ import pytest
 
 from fans.bunch import bunch
 from fans.jober import Jober
+from fans.jober.tests.samples.echo import echo as echo_func
 
 
-# NOTE: fix following error
+# NOTE: below is a fix of following error
 #     RuntimeError: A SemLock created in a fork context is being shared with a
 #     process in a spawn context. This is not supported. Please use the same
 #     context to create multiprocessing objects and Process.
@@ -19,11 +20,6 @@ def jober():
     jober = Jober()
     yield jober
     jober.stop()
-
-
-def echo_func(message: str, count: int = 1):
-    for _ in range(count):
-        print(message)
 
 
 def parametrized():

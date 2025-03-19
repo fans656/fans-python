@@ -1,15 +1,12 @@
 import logging
-import threading
-import multiprocessing as mp
 
 import pytz
 from fans.bunch import bunch
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
-from .base import Base
 
-
-class ApschedulerSched(Base):
+class Sched:
 
     module_logging_levels = {'apscheduler': logging.WARNING}
 
@@ -17,22 +14,15 @@ class ApschedulerSched(Base):
             self,
             *,
             n_threads: int,
-            n_processes: int,
             thread_pool_kwargs = {},
-            process_pool_kwargs = {},
             **_,
     ):
         self._sched = BackgroundScheduler(
             executors={
-                EXECUTOR_NAME.thread: {
+                'default': {
                     'class': 'apscheduler.executors.pool:ThreadPoolExecutor',
                     'max_workers': n_threads,
                     'pool_kwargs': thread_pool_kwargs,
-                },
-                EXECUTOR_NAME.process: {
-                    'class': 'apscheduler.executors.pool:ProcessPoolExecutor',
-                    'max_workers': n_processes,
-                    'pool_kwargs': process_pool_kwargs,
                 },
             },
             timezone=pytz.timezone('Asia/Shanghai'),
@@ -49,21 +39,12 @@ class ApschedulerSched(Base):
             func,
             args=args,
             kwargs=kwargs,
-            executor=EXECUTOR_NAME.thread,
         )
 
-
-def get_executor_by_mode(mode: str):
-    match mode:
-        case 'thread':
-            return EXECUTOR_NAME.thread
-        case 'process':
-            return EXECUTOR_NAME.process
-        case _:
-            return EXECUTOR_NAME.thread
-
-
-EXECUTOR_NAME = bunch({
-    'thread': 'thread',
-    'process': 'process',
-})
+    def run_interval(self, func, interval: int|float, args=(), kwargs={}):
+        job = self._sched.add_job(
+            func,
+            args=args,
+            kwargs=kwargs,
+            trigger=IntervalTrigger(seconds=interval),
+        )

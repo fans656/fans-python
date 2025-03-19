@@ -8,13 +8,13 @@ import functools
 import multiprocessing
 from pathlib import Path
 from enum import Enum
-from typing import Union, Callable, List, Iterable
+from typing import Union, Callable, List, Iterable, Optional
 
 import yaml
 from fans.bunch import bunch
 from fans.logger import get_logger
 
-from .sched import make_sched
+from .sched import Sched
 from .target import Target, TargetType
 from . import util
 from .job.job import Job, Run
@@ -28,115 +28,113 @@ DEFAULT_MODE = 'thread'
 
 
 class Jober:
+    
+    env = bunch({
+        'conf_path': None,
+        'n_thread_pool_workers': 32,
+    })
 
     _instance = None
 
     @staticmethod
-    def get_instance(*args, **kwargs):
+    def get_instance():
         if Jober._instance is None:
-            Jober._instance = Jober(*args, **kwargs)
-        elif args or kwargs:
-            logger.warning(
-                f'calling Jober.get_instance with arguments but instance already exists')
+            Jober._instance = Jober()
         return Jober._instance
 
-    @staticmethod
-    def make(
-            conf: dict|str|Path = {},
-    ):
-        kwargs = {}
+    def __init__(self, env: bunch = None):
+        self.conf = _conf_from_env(env or Jober.env)
 
-        if isinstance(conf, (str, Path)):
-            with Path(conf).open() as f:
-                conf = yaml.safe_load(f)
-        else:
-            raise TypeError(f'invalid conf: {conf}')
-
-        if 'default_mode' in conf:
-            kwargs['default_mode'] = conf['default_mode']
-        if 'n_threads' in conf:
-            kwargs['n_threads'] = conf['n_threads']
-        if 'n_processes' in conf:
-            kwargs['n_processes'] = conf['n_processes']
-
-        return Jober(**kwargs)
-
-    def __init__(
-            self,
-            default_mode: str = DEFAULT_MODE,
-            n_threads: int = 32,
-            n_processes: int = 32,
-    ):
         self._id_to_job = {}
-        self._mp_queue = multiprocessing.Queue()
-        self._th_queue = queue.Queue()
+        self._events_queue = queue.Queue()
 
-        self._sched = make_sched(
-            n_threads=n_threads,
+        self._sched = Sched(
+            n_threads=self.conf.n_thread_pool_workers,
             thread_pool_kwargs={
                 'initializer': _init_pool,
-                'initargs': (self._th_queue,),
-            },
-            n_processes=n_processes,
-            process_pool_kwargs={
-                'initializer': _init_pool,
-                'initargs': (self._mp_queue,),
+                'initargs': (self._events_queue,),
             },
         )
 
-        self._process_events_thread = threading.Thread(
-            target=functools.partial(self._collect_events, self._mp_queue), daemon=True)
-
-        self._thread_events_thread = threading.Thread(
-            target=functools.partial(self._collect_events, self._th_queue), daemon=True)
+        self._thread_events_thread = threading.Thread(target=self._collect_events, daemon=True)
 
         self._listeners = set()
 
         self.started = False
+    
+    @property
+    def info(self) -> dict:
+        return {
+            **self.conf,
+        }
+    
+    @property
+    def jobs(self) -> Iterable[Job]:
+        for job in self._id_to_job.values():
+            yield job
+    
+    @property
+    def job_ids(self) -> Iterable[str]:
+        for job in self.jobs:
+            yield job.id
 
-    def run_job(self, *args, **kwargs) -> 'Run':
-        job = self.add_job(*args, **kwargs)
+    def run_job(
+            self,
+            *args,
+            **kwargs,
+    ) -> 'Run':
+        if isinstance(args[0], Job):
+            job = args[0]
+        else:
+            job = self.add_job(*args, **kwargs)
         run = job.new_run()
-        # TODO: other types of sched instead of just singleshot
-        self._sched.run_singleshot(
-            _run_job,
-            kwargs = {
-                'target': job.target,
-                'job_id': run.job_id,
-                'run_id': run.run_id,
-                'prepare': lambda: _prepare_thread_run(
-                    self._th_queue, run.job_id, run.run_id,
-                    module_logging_levels = self._sched.module_logging_levels,
-                )
-            },
-        )
-        self.start()  # ensure started
+        self._sched.run_singleshot(self._make_job_for_run(run, job))
         return run
 
-    def add_job(self, *args, **kwargs) -> 'Job':
-        """
-        Make a job and add to jober.
-        """
+    def add_job(
+            self,
+            *args,
+            sched: int|float|str = None,
+            initial_run: bool = True,
+            **kwargs,
+    ) -> Job:
+        """Make a job and add to jober."""
         job = self.make_job(*args, **kwargs)
         self._id_to_job[job.id] = job
-        return job
+        
+        if sched is not None:
+            if isinstance(sched, (int, float)):
+                interval = sched
+                self._sched.run_interval(job, interval)
+            else:
+                raise NotImplementedError(f'unsupported sched: {sched}')
 
-    def remove_job(self, job_id: str) -> bool:
-        # TODO: more robust removable check
+        self.start()  # ensure started
+
+        return job
+    
+    def prune_jobs(self) -> list[Job]:
+        pruned = []
+        for job_id in list(self.job_ids):
+            job = self.remove_job(job_id)
+            if job:
+                pruned.append(job)
+        return pruned
+
+    def remove_job(self, job_id: str) -> Optional[Job]:
         job = self.get_job(job_id)
         if not job:
             logger.warning(f'remove_job: job ID not found {job_id}')
-            return False
+            return None
         if not job.removable:
             logger.warning(f'remove_job: job not removable {job_id}')
-            return False
+            return None
         del self._id_to_job[job_id]
-        return True
+        return job
 
     def run_for_a_while(self, seconds: float = 0.001):
         time.sleep(seconds)
 
-    # TODO: mode should not be in Job
     # TODO: sched can be separated out from Job?
     def make_job(
             self,
@@ -148,6 +146,7 @@ class Jober:
             name: str = None,
             extra: any = None,
             sched: str = None,
+            **__,
     ) -> 'Job':
         """
         Make a job without adding to jober.
@@ -170,7 +169,6 @@ class Jober:
         if not self.started:
             self._sched.start()
             self._thread_events_thread.start()
-            self._process_events_thread.start()
             util.enable_proxy()
             self.started = True
 
@@ -244,7 +242,8 @@ class Jober:
         listeners.discard(token)
         self._listeners = listeners
 
-    def _collect_events(self, queue):
+    def _collect_events(self):
+        queue = self._events_queue
         while True:
             event = queue.get()
             job_id = event['job_id']
@@ -263,14 +262,27 @@ class Jober:
                 except:
                     traceback.print_exc()
 
+    def _make_job_for_run(self, run, job):
+        def _run():
+            return _run_job(**{
+                'target': job.target,
+                'job_id': run.job_id,
+                'run_id': run.run_id,
+                'prepare': lambda: _prepare_thread_run(
+                    self._events_queue, run.job_id, run.run_id,
+                    module_logging_levels=self._sched.module_logging_levels,
+                )
+            })
+        return _run
 
-def _init_pool(queue: 'queue.Queue|multiprocessing.Queue'):
+
+def _init_pool(queue: queue.Queue):
     global _events_queue
     _events_queue = queue
 
 
 def _run_job(*, target, job_id, run_id, prepare):
-    eventer = RunEventer(job_id = job_id, run_id = run_id)
+    eventer = RunEventer(job_id=job_id, run_id=run_id)
     try:
         _events_queue.put(eventer.begin())
         if prepare:
@@ -283,10 +295,7 @@ def _run_job(*, target, job_id, run_id, prepare):
         _events_queue.put(eventer.done())
 
 
-def _prepare_thread_run(
-        thread_out_queue, job_id, run_id,
-        module_logging_levels = {},
-):
+def _prepare_thread_run(thread_out_queue, job_id, run_id, module_logging_levels={}):
     util.redirect(
         queue = thread_out_queue,
         job_id = job_id,
@@ -300,6 +309,14 @@ def _consumed(value):
         # ensure a generator function is iterated
         for _ in value:
             pass
+
+
+def _conf_from_env(env: bunch):
+    conf = bunch(env)
+    if env.conf_path:
+        with Path(env.conf_path).open() as f:
+            conf.update(yaml.safe_load(f))
+    return conf
 
 
 _events_queue = None

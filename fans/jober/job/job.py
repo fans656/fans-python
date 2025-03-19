@@ -1,7 +1,6 @@
 import uuid
 import queue
 import asyncio
-from abc import abstractmethod
 from typing import Iterable, Optional
 
 from fans.logger import get_logger
@@ -13,11 +12,6 @@ logger = get_logger(__name__)
 
 
 class Job:
-    """
-    Base impl, see separate concrete impl for details.
-    """
-
-    mode = None
 
     def __init__(
             self,
@@ -35,12 +29,17 @@ class Job:
         self._id_to_run = {}
         self._last_run_id = None
         self._max_run_time = 0
-
-        self.init()
-
-    @abstractmethod
-    def init(self):
-        pass
+    
+    def __call__(self, *args, **kwargs):
+        run = self.new_run()
+        run(*args, **kwargs)
+    
+    def as_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'extra': self.extra,
+        }
 
     @property
     def status(self) -> str:
@@ -88,8 +87,8 @@ class Job:
     def new_run(self):
         run_id = uuid.uuid4().hex
         run = Run(
-            job_id = self.id,
-            run_id = run_id,
+            job_id=self.id,
+            run_id=run_id,
         )
         self._id_to_run[run_id] = run
         return run
