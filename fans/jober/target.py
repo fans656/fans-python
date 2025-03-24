@@ -29,7 +29,9 @@ class Target:
             kwargs  = {},
             **extras,
     ):
-        if callable(source):
+        if extras.get('shell'):
+            impl = ShellCommandTarget
+        elif callable(source):
             impl = PythonCallableTarget
         elif isinstance(source, str):
             parts = shlex.split(source)
@@ -61,6 +63,9 @@ class Target:
         self.args = args
         self.kwargs = kwargs
         self.extras = extras
+    
+    def bind(self, args, kwargs):
+        return Target.make(self.source, args, kwargs, **self.extras)
 
     def __call__(self):
         self.prepare_call()
@@ -101,6 +106,17 @@ class CommandTarget(Target):
 
             cmd = [*cmd, *self.args, *self.kwargs_as_cmdline_options]
 
+        proc = subprocess.Popen(cmd, **self.extras)
+        proc.wait()
+        return proc.returncode
+
+
+class ShellCommandTarget(Target):
+
+    type = TargetType.command
+
+    def do_call(self):
+        cmd = self.source
         proc = subprocess.Popen(cmd, **self.extras)
         proc.wait()
         return proc.returncode

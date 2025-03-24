@@ -3,9 +3,36 @@ import time
 import yaml
 import pytest
 from fans.path import Path
+from fans.bunch import bunch
 
 from fans.jober.jober import Jober, DEFAULT_MODE
 from fans.jober.conftest import parametrized
+
+
+class Test_load_jobs_from_conf:
+
+    def test_default(self, tmp_path):
+        """Can load jobs from conf file"""
+        conf_path = tmp_path / 'conf.yaml'
+        with conf_path.open('w') as f:
+            yaml.dump({
+                'jobs': [{
+                    'name': 'foo',
+                    'module': 'fans.jober.tests.samples.echo',
+                }],
+            }, f)
+        
+        jober = Jober(bunch({
+            **Jober.env,
+            'conf_path': conf_path,
+        }))
+        jobs = list(jober.jobs)
+        assert jobs
+        
+        job = jober.get_job('foo')
+        jober.run_job(job, args=('hello',), kwargs={'count': 2})
+        job.wait()
+        assert job.output == 'hello\nhello\n'
 
 
 class Test_make_job:

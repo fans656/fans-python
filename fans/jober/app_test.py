@@ -64,9 +64,11 @@ class Test_info:
 class Test_list:
 
     def test_empty(self, client):
+        """By default there is no jobs"""
         assert client.get('/api/jober/list').json() == []
     
     def test_non_empty(self, jober, mocker, client):
+        """Can list existed jobs"""
         jober.add_job(mocker.Mock())
         jober.add_job(mocker.Mock())
         jobs = client.get('/api/jober/list').json()
@@ -78,6 +80,7 @@ class Test_list:
 class Test_prune:
     
     def test_prune(self, jober, mocker, client):
+        """Can prune jobs not running"""
         jober.add_job(mocker.Mock())
         pruned_jobs = client.post('/api/jober/prune').json()
         assert pruned_jobs
@@ -88,6 +91,7 @@ class Test_prune:
 class Test_run:
     
     def test_run(self, jober, mocker, client):
+        """Can manually trigger run of specific job"""
         func = mocker.Mock()
         job = jober.add_job(func)
         client.post('/api/jober/run', json={'job_id': job.id})

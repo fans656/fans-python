@@ -29,21 +29,28 @@ DEFAULT_MODE = 'thread'
 
 class Jober:
     
-    env = bunch({
+    conf = {
         'conf_path': None,
+        'capture': 'memory',
         'n_thread_pool_workers': 32,
-    })
+        'jobs': [],
+    }
 
     _instance = None
 
     @staticmethod
     def get_instance():
         if Jober._instance is None:
-            Jober._instance = Jober()
+            Jober._instance = Jober(**Jober.conf)
         return Jober._instance
 
-    def __init__(self, env: bunch = None):
-        self.conf = _conf_from_env(env or Jober.env)
+    def __init__(self, **conf):
+        for key, value in Jober.conf.items():
+            conf.setdefault(key, value)
+        if conf.get('conf_path'):
+            with Path(conf['conf_path']).open() as f:
+                conf.update(yaml.safe_load(f))
+        self.conf = bunch(conf)
 
         self._id_to_job = {}
         self._events_queue = queue.Queue()
@@ -61,6 +68,15 @@ class Jober:
         self._listeners = set()
 
         self.started = False
+        
+        self._load_jobs_from_conf()
+    
+    def wait(self):
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
     
     @property
     def info(self) -> dict:
@@ -83,12 +99,17 @@ class Jober:
             *args,
             **kwargs,
     ) -> 'Run':
+        """
+        Sample usages:
+        
+            jober.run_job('sleep 1 && date', shell=True)
+        """
         if isinstance(args[0], Job):
             job = args[0]
         else:
             job = self.add_job(*args, **kwargs)
         run = job.new_run()
-        self._sched.run_singleshot(self._make_job_for_run(run, job))
+        self._sched.run_singleshot(self._make_job_for_run(run, job, **kwargs))
         return run
 
     def add_job(
@@ -146,6 +167,7 @@ class Jober:
             name: str = None,
             extra: any = None,
             sched: str = None,
+            shell: bool = False,
             **__,
     ) -> 'Job':
         """
@@ -156,7 +178,7 @@ class Jober:
         kwargs: dict = None
         sched: str = None
         """
-        target = Target.make(target, args, kwargs)
+        target = Target.make(target, args, kwargs, shell=shell)
         job = Job(
             target,
             id=id,
@@ -262,18 +284,37 @@ class Jober:
                 except:
                     traceback.print_exc()
 
-    def _make_job_for_run(self, run, job):
+    def _make_job_for_run(self, run, job, args=None, kwargs=None, **__):
         def _run():
-            return _run_job(**{
-                'target': job.target,
-                'job_id': run.job_id,
-                'run_id': run.run_id,
-                'prepare': lambda: _prepare_thread_run(
+            if args is not None or kwargs is not None:
+                target = job.target.bind(args or [], kwargs or {})
+            else:
+                target = job.target
+            
+            if self.conf.capture:
+                prepare = lambda: _prepare_thread_run(
                     self._events_queue, run.job_id, run.run_id,
                     module_logging_levels=self._sched.module_logging_levels,
                 )
+            else:
+                prepare = None
+
+            return _run_job(**{
+                'target': target,
+                'job_id': run.job_id,
+                'run_id': run.run_id,
+                'prepare': prepare,
             })
         return _run
+    
+    def _load_jobs_from_conf(self):
+        for spec in self.conf.get('jobs', []):
+            name = spec.get('name')
+            self.add_job(
+                target=spec.get('module'),  # TODO: other target types
+                id=name,
+                name=name,
+            )
 
 
 def _init_pool(queue: queue.Queue):
@@ -309,14 +350,6 @@ def _consumed(value):
         # ensure a generator function is iterated
         for _ in value:
             pass
-
-
-def _conf_from_env(env: bunch):
-    conf = bunch(env)
-    if env.conf_path:
-        with Path(env.conf_path).open() as f:
-            conf.update(yaml.safe_load(f))
-    return conf
 
 
 _events_queue = None

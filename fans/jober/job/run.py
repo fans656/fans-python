@@ -13,7 +13,8 @@ logger = get_logger(__name__)
 
 class Run:
 
-    def __init__(self, *, job_id, run_id):
+    def __init__(self, *, target, job_id, run_id):
+        self.target = target
         self.job_id = job_id
         self.run_id = run_id
         self.status = 'init'
@@ -25,6 +26,9 @@ class Run:
         # TODO: limit output size
         # NOTE: this does not support multiple clients
         self._events_queue = queue.Queue()
+    
+    def __call__(self, *args, **kwargs):
+        return self.target(*args, **kwargs)
 
     @property
     def output(self) -> str:
@@ -91,7 +95,7 @@ class Run:
 class DummyRun(Run):
 
     def __init__(self):
-        super().__init__(job_id = 'dummy', run_id = 'dummy')
+        super().__init__(target=lambda *_, **__: None, job_id='dummy', run_id='dummy')
 
     def __bool__(self):
         return False

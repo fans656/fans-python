@@ -1,3 +1,62 @@
+# Intro
+
+`jober` provides a way to manage multiple executables as jobs.
+
+In the most simplified form, you create a `Jober` instance and run job in it:
+
+    from fans.jober import Jober
+
+
+    jober = Jober(capture=False)
+    jober.run_job('sleep 0.01 && date', shell=True).wait()
+
+or you can add a callable that run periodically:
+
+    import datetime
+
+    from fans.jober import Jober
+    
+
+    def func():
+        print(datetime.datetime.now())
+
+
+    jober = Jober(capture=False)
+    jober.add_job(func, sched=1)
+    jober.wait()
+
+# Executables
+
+There are multiple types of executables:
+- Shell command
+- Python function
+- Python module
+- Python script
+
+## Shell command
+
+Use a string to represent shell command, specifying `shell=True` to run through shell:
+
+    jober.run_job('sleep 0.01 && date', shell=True)
+
+if not specifying `shell=True`, the string will be `shlex` split and pass to `subprocess.Popen`:
+
+    jober.run_job('ls -lh')
+
+which is equivalent to:
+
+    jober.run_job(['ls', '-lh'])
+
+## Python callable
+
+# Execution environment
+
+## Current working directory
+
+## Thread or Process
+
+---
+
 usages
 - fme
   - interval jobs

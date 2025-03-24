@@ -1,4 +1,5 @@
 import uuid
+import time
 import queue
 import asyncio
 from typing import Iterable, Optional
@@ -32,7 +33,7 @@ class Job:
     
     def __call__(self, *args, **kwargs):
         run = self.new_run()
-        run(*args, **kwargs)
+        return run(*args, **kwargs)
     
     def as_dict(self):
         return {
@@ -87,11 +88,16 @@ class Job:
     def new_run(self):
         run_id = uuid.uuid4().hex
         run = Run(
+            target=self.target,
             job_id=self.id,
             run_id=run_id,
         )
         self._id_to_run[run_id] = run
         return run
+    
+    def wait(self, interval=0.01):
+        while self.last_run.status in ('init', 'running'):
+            time.sleep(interval)
 
     def _on_run_event(self, event):
         run_id = event['run_id']
