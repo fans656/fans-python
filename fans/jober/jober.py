@@ -17,7 +17,8 @@ from fans.logger import get_logger
 from .sched import Sched
 from .target import Target, TargetType
 from . import util
-from .job.job import Job, Run
+from .job import Job
+from .run import Run
 from .event import RunEventer
 
 
@@ -71,10 +72,13 @@ class Jober:
         
         self._load_jobs_from_conf()
     
-    def wait(self):
+    def wait(self, timeout: float = None):
         try:
+            beg = time.time()
             while True:
-                time.sleep(1)
+                if timeout and time.time() - beg >= timeout:
+                    break
+                time.sleep(0.01)
         except KeyboardInterrupt:
             pass
     
@@ -167,6 +171,7 @@ class Jober:
             name: str = None,
             extra: any = None,
             sched: str = None,
+            cwd: str = None,
             shell: bool = False,
             **__,
     ) -> 'Job':
@@ -178,7 +183,13 @@ class Jober:
         kwargs: dict = None
         sched: str = None
         """
-        target = Target.make(target, args, kwargs, shell=shell)
+        target = Target.make(
+            target,
+            args,
+            kwargs,
+            shell=shell,
+            cwd=cwd,
+        )
         job = Job(
             target,
             id=id,

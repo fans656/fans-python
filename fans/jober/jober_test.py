@@ -22,10 +22,7 @@ class Test_load_jobs_from_conf:
                 }],
             }, f)
         
-        jober = Jober(bunch({
-            **Jober.env,
-            'conf_path': conf_path,
-        }))
+        jober = Jober(conf_path=conf_path)
         jobs = list(jober.jobs)
         assert jobs
         

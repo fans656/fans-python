@@ -5,7 +5,7 @@ import runpy
 import hashlib
 import subprocess
 import importlib.util
-from abc import abstractmethod
+from pathlib import Path
 from typing import Union, Callable, List, Iterable
 
 
@@ -30,7 +30,7 @@ class Target:
             **extras,
     ):
         if extras.get('shell'):
-            impl = ShellCommandTarget
+            impl = CommandTarget
         elif callable(source):
             impl = PythonCallableTarget
         elif isinstance(source, str):
@@ -71,13 +71,11 @@ class Target:
         self.prepare_call()
         return self.do_call()
 
-    @abstractmethod
     def prepare_call(self):
         pass
 
-    @abstractmethod
     def do_call(self):
-        pass
+        raise NotImplementedError()
     
     @property
     def kwargs_as_cmdline_options(self):
@@ -88,8 +86,30 @@ class Target:
         return list(gen())
     
     @property
-    def cwd(self):
-        return os.getcwd()  # TODO: configurable
+    def cwd(self) -> Path:
+        return Path(self.extras.get('cwd') or os.getcwd())
+    
+    def _popen(self, cmd: str|list[str]):
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(self.cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, # redirect to stdout
+            text=True,
+            encoding=self.extras.get('encoding', 'utf-8'),
+            bufsize=1,  # line buffered
+            errors='replace',
+            shell=self.extras.get('shell', False),
+        )
+        try:
+            for line in iter(proc.stdout.readline, ''):
+                print(line, end='')
+        except KeyboardInterrupt:
+            pass
+        finally:
+            proc.wait()
+        
+        return proc.returncode
 
 
 class CommandTarget(Target):
@@ -98,28 +118,11 @@ class CommandTarget(Target):
 
     def do_call(self):
         cmd = self.source
-
         if 'shell' not in self.extras:
-
             if isinstance(cmd, str):
                 cmd = shlex.split(cmd)
-
             cmd = [*cmd, *self.args, *self.kwargs_as_cmdline_options]
-
-        proc = subprocess.Popen(cmd, **self.extras)
-        proc.wait()
-        return proc.returncode
-
-
-class ShellCommandTarget(Target):
-
-    type = TargetType.command
-
-    def do_call(self):
-        cmd = self.source
-        proc = subprocess.Popen(cmd, **self.extras)
-        proc.wait()
-        return proc.returncode
+        return self._popen(cmd)
 
 
 class CallableTarget(Target):
@@ -145,6 +148,7 @@ class PythonScriptCallableTarget(CallableTarget):
 
     def prepare_call(self):
         path, func_name = self.source.split(':')
+        path = self.cwd / path
         name = hashlib.md5(str(path).encode('utf-8')).hexdigest()
         spec = importlib.util.spec_from_file_location(name, path)
         module = importlib.util.module_from_spec(spec)
@@ -168,24 +172,7 @@ class PythonExecutableTarget(Target):
 
     def do_call(self):
         cmd = [sys.executable, *self.get_execute_args(), *self.args, *self.kwargs_as_cmdline_options]
-        proc = subprocess.Popen(
-            cmd,
-            cwd=self.cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, # redirect to stdout
-            bufsize=1,
-            encoding='utf-8',
-            universal_newlines=True,
-        )
-        try:
-            for line in iter(proc.stdout.readline, ''):
-                print(line, end='')
-        except KeyboardInterrupt:
-            pass
-        finally:
-            proc.wait()
-
-        return proc.returncode
+        return self._popen(cmd)
 
 
 class PythonScriptTarget(PythonExecutableTarget):

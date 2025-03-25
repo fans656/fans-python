@@ -1,6 +1,10 @@
 import argparse
 
 
+def say(what: str = 'hi'):
+    print(what)
+
+
 def echo(
         message: str = '',
         count: int = 1,

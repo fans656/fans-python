@@ -1,6 +1,7 @@
-# Intro
+Intro
+================================================================================
 
-`jober` provides a way to manage multiple executables as jobs.
+`fans.jober` can manage multiple executables as jobs.
 
 In the most simplified form, you create a `Jober` instance and run job in it:
 
@@ -10,7 +11,7 @@ In the most simplified form, you create a `Jober` instance and run job in it:
     jober = Jober(capture=False)
     jober.run_job('sleep 0.01 && date', shell=True).wait()
 
-or you can add a callable that run periodically:
+or you can make a function run periodically:
 
     import datetime
 
@@ -25,9 +26,10 @@ or you can add a callable that run periodically:
     jober.add_job(func, sched=1)
     jober.wait()
 
-# Executables
+Executables
+================================================================================
 
-There are multiple types of executables:
+Executable is what got executed when a job runs, below are supported types of executables:
 - Shell command
 - Python function
 - Python module
@@ -49,11 +51,39 @@ which is equivalent to:
 
 ## Python callable
 
-# Execution environment
+Use a function or any callable:
 
-## Current working directory
+    def func():
+        print('hello')
+
+    jober.run_job(func)
+
+## Python module
+
+Use module name string:
+
+    jober.run_job('fans.jober.tests.samples.echo', args=('hello',))
+
+Or choose a function in the module:
+
+    jober.run_job('fans.jober.tests.samples.echo:say')
+
+## Python script
+
+Use script path string:
+
+    jober.run_job('./samples/echo.py', args=('hello',))
+
+Or choose a function in the module:
+
+    jober.run_job('./samples/echo.py:say')
+
+Execution environment
+================================================================================
 
 ## Thread or Process
+
+## Current working directory
 
 ---
 

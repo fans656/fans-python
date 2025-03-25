@@ -21,8 +21,8 @@ def jober():
 
 
 @contextlib.contextmanager
-def use_instance(env: bunch = None):
-    jober = Jober(env)
+def use_instance(conf: bunch = {}):
+    jober = Jober(**conf)
     Jober._instance = jober
     jober.start()
     yield jober
@@ -34,13 +34,11 @@ class Test_info:
 
     def test_jober_info(self, client, tmp_path):
         """Can get general info about jober"""
-        env = bunch(Jober.env)
         conf_path = tmp_path / 'conf.yaml'
         with conf_path.open('w') as f:
             yaml.dump({}, f)
-        env.conf_path = conf_path
 
-        with use_instance(env):
+        with use_instance({'conf_path': conf_path}):
             data = client.get('/api/jober/info').json()
             
             # can get conf path
