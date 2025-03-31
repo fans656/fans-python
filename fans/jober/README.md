@@ -83,9 +83,31 @@ Execution environment
 
 ## Thread or Process
 
+By default, jobs with callable executable will run in thread:
+
+    jober.run_job(func)  # callable
+    jober.run_job('fans.jober.tests.samples.echo:say')  # module callable
+    jober.run_job('./samples/echo.py:say')  # script callable
+
+and shell commands, python module/script will run in process:
+
+    jober.run_job('ls -lh')  # command
+    jober.run_job('fans.jober.tests.samples.echo')  # module
+    jober.run_job('./samples/echo.py')  # script
+
+You can force callable to be run in process:
+
+    jober.run_job(func, process=True)  # callable
+    jober.run_job('fans.jober.tests.samples.echo:say', process=True)  # module callable
+    jober.run_job('./samples/echo.py:say', process=True)  # script callable
+
 ## Current working directory
 
----
+You can set current working directory of the job if it's run in process:
+
+    jober.run_job('ls', cwd='/tmp')
+
+--------------------------------------------------------------------------------
 
 usages
 - fme

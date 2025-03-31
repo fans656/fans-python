@@ -173,6 +173,7 @@ class Jober:
             sched: str = None,
             cwd: str = None,
             shell: bool = False,
+            process: bool = False,
             **__,
     ) -> 'Job':
         """
@@ -189,6 +190,7 @@ class Jober:
             kwargs,
             shell=shell,
             cwd=cwd,
+            process=process,
         )
         job = Job(
             target,
@@ -320,12 +322,25 @@ class Jober:
     
     def _load_jobs_from_conf(self):
         for spec in self.conf.get('jobs', []):
+            spec = _normalized_job_spec(spec)
             name = spec.get('name')
             self.add_job(
-                target=spec.get('module'),  # TODO: other target types
+                target=spec.get('executable'),
                 id=name,
                 name=name,
             )
+
+
+def _normalized_job_spec(spec: dict):
+    executable = spec.get('cmd')
+    if not executable:
+        executable = spec.get('module')
+    if not executable:
+        executable = spec.get('script')
+    return {
+        **spec,
+        'executable': executable,
+    }
 
 
 def _init_pool(queue: queue.Queue):

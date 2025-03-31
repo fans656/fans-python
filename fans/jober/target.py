@@ -2,6 +2,8 @@ import os
 import sys
 import shlex
 import runpy
+import base64
+import pickle
 import hashlib
 import subprocess
 import importlib.util
@@ -131,7 +133,13 @@ class CallableTarget(Target):
         self.func = None
 
     def do_call(self):
-        return self.func(*self.args, **self.kwargs)
+        if self.extras.get('process'):
+            return self._execute_func_in_process()
+        else:
+            return self.func(*self.args, **self.kwargs)
+    
+    def _execute_func_in_process(self):
+        raise NotImplementedError()
 
 
 class PythonCallableTarget(CallableTarget):
@@ -140,6 +148,19 @@ class PythonCallableTarget(CallableTarget):
 
     def prepare_call(self):
         self.func = self.source
+    
+    def _execute_func_in_process(self):
+        data = (self.func, self.args, self.kwargs)
+        data_text = base64.b64encode(pickle.dumps(data)).decode("utf-8")
+        return self._popen([
+            sys.executable,
+            '-c',
+            (
+                f'import pickle, base64;'
+                f'func, args, kwargs = pickle.loads(base64.b64decode("{data_text}"));'
+                f'func(*args, **kwargs)'
+            ),
+        ])
 
 
 class PythonScriptCallableTarget(CallableTarget):
@@ -154,6 +175,27 @@ class PythonScriptCallableTarget(CallableTarget):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self.func = getattr(module, func_name)
+        
+        self.path = path
+        self.func_name = func_name
+    
+    def _execute_func_in_process(self):
+        data = (self.args, self.kwargs)
+        data_text = base64.b64encode(pickle.dumps(data)).decode("utf-8")
+        self._popen([
+            sys.executable,
+            '-c',
+            (
+                f'import pickle, base64;'
+                f'import importlib.util;'
+                f'spec = importlib.util.spec_from_file_location("", "{self.path}");'
+                f'module = importlib.util.module_from_spec(spec);'
+                f'spec.loader.exec_module(module);'
+                f'func = getattr(module, "{self.func_name}");'
+                f'args, kwargs = pickle.loads(base64.b64decode("{data_text}"));'
+                f'func(*args, **kwargs);'
+            ),
+        ])
 
 
 class PythonModuleCallableTarget(CallableTarget):
@@ -166,6 +208,23 @@ class PythonModuleCallableTarget(CallableTarget):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self.func = getattr(module, func_name)
+        
+        self.module_name = module_name
+        self.func_name = func_name
+    
+    def _execute_func_in_process(self):
+        data = (self.args, self.kwargs)
+        data_text = base64.b64encode(pickle.dumps(data)).decode("utf-8")
+        self._popen([
+            sys.executable,
+            '-c',
+            (
+                f'import pickle, base64;'
+                f'from {self.module_name} import {self.func_name};'
+                f'args, kwargs = pickle.loads(base64.b64decode("{data_text}"));'
+                f'{self.func_name}(*args, **kwargs);'
+            ),
+        ])
 
 
 class PythonExecutableTarget(Target):

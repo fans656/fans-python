@@ -1,7 +1,9 @@
+import os
 import datetime
 from pathlib import Path
 
 from fans.jober import Jober
+from fans.jober.tests.samples.echo import echo
 
 
 def test_simple():
@@ -66,3 +68,28 @@ def test_python_script_callable(jober):
     job = jober.run_job('./samples/echo.py:say', cwd=dir_path)
     job.wait()
     assert job.output == 'hi\n'
+
+
+def test_run_callable_in_process(jober):
+    job = jober.run_job(echo, kwargs={'show_pid': True}, process=True)
+    job.wait()
+    assert int(job.output) != os.getpid()
+
+
+def test_run_module_callable_in_process(jober):
+    job = jober.run_job('fans.jober.tests.samples.echo:echo', kwargs={'show_pid': True}, process=True)
+    job.wait()
+    assert int(job.output) != os.getpid()
+
+
+def test_run_script_callable_in_process(jober):
+    dir_path = Path(__file__).parent.absolute()
+    job = jober.run_job('./samples/echo.py:echo', cwd=dir_path, kwargs={'show_pid': True}, process=True)
+    job.wait()
+    assert int(job.output) != os.getpid()
+
+
+def test_cwd(jober, tmp_path):
+    job = jober.run_job('pwd', cwd=tmp_path)
+    job.wait()
+    assert job.output.strip() == str(tmp_path)

@@ -1,3 +1,4 @@
+import os
 import argparse
 
 
@@ -9,9 +10,13 @@ def echo(
         message: str = '',
         count: int = 1,
         file: str = None,
+        show_pid: bool = False,
 ):
     if file:
         file = open(file, 'w')
+    
+    if show_pid:
+        print(os.getpid(), file=file)
 
     for _ in range(count):
         print(message, file=file)
