@@ -9,9 +9,9 @@ class Test_run:
     @parametrized()
     def test_run_job(self, conf, jober):
         """Can run job and collect output"""
-        run = jober.run_job(conf.target, args=('foo',))
-        run.wait()
-        assert run.output == 'foo\n'
+        job = jober.run_job(conf.target, args=('foo',))
+        job.wait()
+        assert job.output == 'foo\n'
 
     @parametrized()
     def test_run_job_with_args_and_kwargs(self, conf, jober):
@@ -23,10 +23,9 @@ class Test_run:
     @parametrized()
     def test_run_id_and_job_id(self, conf, jober):
         """Get run ID and job ID"""
-        run = jober.run_job(conf.target)
-        job = jober.get_job(run.job_id)
+        job = jober.run_job(conf.target)
+        job = jober.get_job(job.job_id)
         assert job
-        assert job.get_run(run.run_id) is run
 
     @parametrized()
     def test_remove_job(self, conf, jober):

@@ -22,6 +22,14 @@ def jober():
     jober.stop()
 
 
+@pytest.fixture
+def empty_instance():
+    conf = dict(Jober.conf)
+    yield
+    Jober.conf = conf
+    Jober.instance = None
+
+
 def parametrized():
     confs = [
         {

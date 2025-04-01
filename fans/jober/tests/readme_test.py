@@ -1,6 +1,9 @@
 import os
+import time
 import datetime
 from pathlib import Path
+
+from freezegun import freeze_time
 
 from fans.jober import Jober
 from fans.jober.tests.samples.echo import echo
@@ -93,3 +96,32 @@ def test_cwd(jober, tmp_path):
     job = jober.run_job('pwd', cwd=tmp_path)
     job.wait()
     assert job.output.strip() == str(tmp_path)
+
+
+def test_interval(jober):
+    job = jober.add_job('date', sched=0.01)
+    time.sleep(0.1)
+    assert len(job.output.split('\n')) >= 10
+
+
+def test_cron(jober):
+    job = jober.add_job('date', sched='0 22 * * *')
+    jober.start()
+
+    with freeze_time('2025-01-01 08:00:00', tz_offset=+8):
+
+        with freeze_time('2025-01-01 22:00:00'):
+            time.sleep(0.1)
+            #print('now', datetime.datetime.now())
+
+        with freeze_time('2025-01-01 23:00:00'):
+            time.sleep(0.1)
+
+        with freeze_time('2025-01-02 22:00:00'):
+            time.sleep(0.1)
+
+        with freeze_time('2025-01-02 23:00:00'):
+            time.sleep(0.1)
+    
+        
+    print(job.output)

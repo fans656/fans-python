@@ -107,6 +107,30 @@ You can set current working directory of the job if it's run in process:
 
     jober.run_job('ls', cwd='/tmp')
 
+Schedule
+================================================================================
+
+There are multiple types of schedule supported:
+- single shot
+- interval
+- cron
+
+## Single shot
+
+Run executable now and only once:
+
+    jober.run_job('ls')
+
+## Interval
+
+Run every `<interval>` seconds:
+
+    jober.run_job('date', sched=0.5)  # run every 500ms
+
+## Cron
+
+    jober.run_job('date', sched='0 22 * * *')  # run at 10:00 PM everyday
+
 --------------------------------------------------------------------------------
 
 usages

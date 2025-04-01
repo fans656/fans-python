@@ -4,6 +4,7 @@ import pytz
 from fans.bunch import bunch
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 
 
 class Sched:
@@ -47,4 +48,13 @@ class Sched:
             args=args,
             kwargs=kwargs,
             trigger=IntervalTrigger(seconds=interval),
+        )
+
+    def run_cron(self, func, crontab: str, args=(), kwargs={}):
+        trigger = CronTrigger.from_crontab(crontab)
+        job = self._sched.add_job(
+            func,
+            args=args,
+            kwargs=kwargs,
+            trigger=trigger,
         )

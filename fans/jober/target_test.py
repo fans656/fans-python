@@ -93,3 +93,9 @@ class Test_python_module:
         target()
         with fpath.open() as f:
             assert f.read() == 'foo\nfoo\nfoo\n'
+
+
+def test_xxx():
+    target = Target.make('uv run -m foo "hello world"')
+    target()
+    #print()

@@ -114,7 +114,7 @@ class Jober:
             job = self.add_job(*args, **kwargs)
         run = job.new_run()
         self._sched.run_singleshot(self._make_job_for_run(run, job, **kwargs))
-        return run
+        return job
 
     def add_job(
             self,
@@ -129,8 +129,9 @@ class Jober:
         
         if sched is not None:
             if isinstance(sched, (int, float)):
-                interval = sched
-                self._sched.run_interval(job, interval)
+                self._sched.run_interval(job, sched)
+            elif isinstance(sched, str):
+                self._sched.run_cron(job, sched)
             else:
                 raise NotImplementedError(f'unsupported sched: {sched}')
 
@@ -328,6 +329,8 @@ class Jober:
                 target=spec.get('executable'),
                 id=name,
                 name=name,
+                cwd=spec.get('cwd'),
+                shell=spec.get('shell'),
             )
 
 

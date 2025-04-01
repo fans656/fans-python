@@ -10,6 +10,16 @@ app = FastAPI()
 
 @app.post('/api/fans-sync')
 def api_fans_sync(req: dict):
+    op = req.get('op')
+    
+    match op:
+        case 'sqlite':
+            return handle_sqlite_sync(req)
+        case _:
+            return _run_sync(req)
+
+
+def _run_sync(req):
     results = {}
     errors = []
     modules = req['syncs']

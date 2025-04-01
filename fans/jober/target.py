@@ -120,7 +120,7 @@ class CommandTarget(Target):
 
     def do_call(self):
         cmd = self.source
-        if 'shell' not in self.extras:
+        if not self.extras.get('shell'):
             if isinstance(cmd, str):
                 cmd = shlex.split(cmd)
             cmd = [*cmd, *self.args, *self.kwargs_as_cmdline_options]
