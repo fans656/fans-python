@@ -35,7 +35,6 @@ def test_default(tmp_path):
     count, cursor = M.get_items_later_than(
         str(database_path),
         'foo',
-        'added',
         when=8,
         #fields=[],
     )

@@ -1,9 +1,85 @@
 import io
 import uuid
 import base64
+from pathlib import Path
 
 import peewee
 import msgpack
+import requests
+
+
+DEFAULT_TS_COLUMNS = ['added']
+
+
+def handle_sqlite_sync_client_side(
+        origin: str,
+        database: str,
+        table: str,
+        *,
+        ts_columns: list[str] = DEFAULT_TS_COLUMNS,
+        when: int = 0,
+        local_database_path: str = None,
+        **__,
+):
+    url = f'{origin}/api/fans-sync'
+    res = requests.post(url, json={
+        'op': 'sqlite',
+        'database': database,
+        'table': table,
+        'ts_columns': ts_columns,
+        'when': when,
+    })
+    
+    items = load_items(res.json())
+    
+    if local_database_path:
+        #if not Path(local_database_path).exists():
+        #    _create_local_database(local_database_path, )
+        _save_to_local_database(local_database_path, items)
+    else:
+        for item in items:
+            print(item)
+
+
+def handle_sqlite_sync_server_side(req: dict, paths=None):
+    database = req['database']
+    if paths and hasattr(paths, database):
+        database = getattr(paths, database)
+
+    kwargs = {
+        'database': str(database),
+        'table': req['table'],
+    }
+    for key in ['ts_columns', 'when', 'fields']:
+        if key in req:
+            kwargs[key] = req[key]
+
+    count, cursor = get_items_later_than(**kwargs)
+    
+    return dump_items(cursor, **req.get('dump', {}))
+
+
+def get_items_later_than(
+        database: str|peewee.SqliteDatabase,
+        table: str,
+        ts_columns: list[str] = DEFAULT_TS_COLUMNS,
+        when: int = 0,
+        fields: list[str] = (),
+):
+    database = _get_database(database)
+    
+    if fields:
+        fields_sql = ','.join(fields)
+    else:
+        fields_sql = '*'
+    
+    ts_columns_sql = ' or '.join(f'{d} > {when}' for d in ts_columns)
+    where_sql = f' where {ts_columns_sql}'
+
+    count = database.execute_sql(f'select count(*) from {table} {where_sql}').fetchone()[0]
+    cursor = database.execute_sql(f'select {fields_sql} from {table} {where_sql}')
+    
+    return count, cursor
 
 
 def dump_items(
@@ -45,29 +121,8 @@ def load_items(dumpped: dict):
                 yield from msgpack.Unpacker(f)
 
 
-def get_items_later_than(
-        database: str|peewee.SqliteDatabase,
-        table: str,
-        column: str,
-        when: int = 0,
-        fields: list[str] = (),
-):
-    database = _get_database(database)
-    
-    if fields:
-        fields_sql = ','.join(fields)
-    else:
-        fields_sql = '*'
-
-    count = database.execute_sql(f'''
-        select count(*) from {table} where {column} > {when}
-                         ''').fetchone()[0]
-
-    cursor = database.execute_sql(f'''
-        select {fields_sql} from {table} where {column} > {when}
-                         ''')
-    
-    return count, cursor
+def _save_to_local_database(database_path, items):
+    database = _get_database(database_path)
 
 
 def _get_database(database: str|peewee.SqliteDatabase):

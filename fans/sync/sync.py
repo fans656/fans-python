@@ -1,24 +1,36 @@
-import sys
-from typing import Callable, Iterator
-
 from fans.logger import get_logger
 
-from .context import Context
-from .action import Action
+from .server import Server
+from .client import Client
 
 
 logger = get_logger(__name__)
 
 
-def process_sync(sync: Callable[[Context], Iterator[Action]], ctx: Context):
-    actions = [d for d in sync(ctx) if d.side == ctx.side]
-    for i_action, action in enumerate(actions):
-        action.execute()
+class Sync:
 
-        if 'error' in action.result:
-            print(action.result['trace'], file=sys.stderr)
-            logger.error(action.result['error'])
-            break
+    def __init__(self):
+        self.reset()
+    
+    def reset(self):
+        self.server = Server()
+        self.client = Client()
+    
+    def setup_server(self, *args, **kwargs):
+        self.server = Server(*args, **kwargs)
+    
+    def __call__(self, target: str|dict):
+        target = normalized_target(target)
+        return self.client.sync(target)
 
-        if action.result.get('data') is not None or i_action != len(actions) - 1:
-            ctx.communicate(action)
+
+def normalized_target(target):
+    if isinstance(target, str):
+        raise NotImplementedError()
+    elif isinstance(target, dict):
+        return target
+    else:
+        raise NotImplementedError()
+
+
+sync = Sync()
