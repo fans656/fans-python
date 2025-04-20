@@ -1,4 +1,4 @@
-from typing import Union, Callable
+from typing import Union, Callable, Optional
 
 from fans.fn import noop
 
@@ -29,7 +29,9 @@ class Meta(dict):
         except:
             self.update(_to_value(default))
 
-    def save(self, **kwargs):
+    def save(self, data: Optional[dict] = None, **kwargs):
+        if data is not None:
+            self.update(data)
         self.before_save(self)
         self.path.save(self, **{
             **self.save_kwargs,

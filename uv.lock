@@ -196,7 +196,7 @@ wheels = [
 
 [[package]]
 name = "fans"
-version = "0.0.60"
+version = "0.0.61"
 source = { virtual = "." }
 dependencies = [
     { name = "apscheduler" },
