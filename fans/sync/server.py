@@ -1,5 +1,6 @@
 import sys
 import importlib
+from pathlib import Path
 from typing import Callable, Iterator
 
 from .sqlite_sync import handle_sqlite_sync_server_side
@@ -11,14 +12,20 @@ class Server:
     
     def __init__(
             self,
+            root: str = '.',
             paths: 'fans.path.paths.NamespacedPath' = None,
     ):
+        self.root = Path(root)
         self.paths = paths
 
     def handle_sync_request(self, req: dict):
         match req.get('op'):
             case 'sqlite':
-                return handle_sqlite_sync_server_side(req, paths=self.paths)
+                return handle_sqlite_sync_server_side(
+                    req,
+                    root=self.root,
+                    paths=self.paths,
+                )
             case _:
                 return _run_sync(req)
 

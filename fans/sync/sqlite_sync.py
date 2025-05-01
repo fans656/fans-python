@@ -1,6 +1,8 @@
 import io
 import uuid
 import base64
+import sqlite3
+import subprocess
 from pathlib import Path
 
 import peewee
@@ -21,34 +23,65 @@ def handle_sqlite_sync_client_side(
         local_database_path: str = None,
         **__,
 ):
-    url = f'{origin}/api/fans-sync'
-    res = requests.post(url, json={
+    req = {
         'op': 'sqlite',
         'database': database,
         'table': table,
         'ts_columns': ts_columns,
         'when': when,
-    })
+    }
+    if local_database_path and not Path(local_database_path).exists():
+        req['require_schema'] = True
+
+    url = f'{origin}/api/fans-sync'
+
+    res = requests.post(url, json=req).json()
     
-    items = load_items(res.json())
+    # TODO: wget data file
+    items = list(load_items(res))
     
     if local_database_path:
-        #if not Path(local_database_path).exists():
-        #    _create_local_database(local_database_path, )
-        _save_to_local_database(local_database_path, items)
+        if not Path(local_database_path).exists():
+            _create_local_database(local_database_path, res['schema'])
+        _save_to_local_database(local_database_path, table=table, items=items, columns=res['columns'])
     else:
         for item in items:
             print(item)
 
 
-def handle_sqlite_sync_server_side(req: dict, paths=None):
+def handle_sqlite_sync_server_side(req: dict, root=None, paths=None):
+    """
+    Params:
+    
+        req - {
+            database: str - [REQUIRED] database path or name in `paths` specified in `sync.setup_server(paths=...)`
+            table: str - [REQUIRED] table name
+            ts_columns: list[str] - timestamp columns used to determine rows to sync, defaults to ['added']
+            when: int - timestamp to filter rows (newer than this timestamp) to sync, defaults to 0
+            fields: list[str] - columns to return, defaults to all columns
+            require_schema: bool - whether require table schema in response, used to build table on client side
+        }
+    
+    Returns:
+        
+        dict {
+            type: str - 'file'
+            data: str - rows data file path 
+        } or {
+            type: str - 'inline'
+            data: list[list] - rows data
+        }
+    """
     database = req['database']
     if paths and hasattr(paths, database):
         database = getattr(paths, database)
+    elif root:
+        database = Path(root) / database
 
+    table_name = req['table']
     kwargs = {
         'database': str(database),
-        'table': req['table'],
+        'table': table_name,
     }
     for key in ['ts_columns', 'when', 'fields']:
         if key in req:
@@ -56,7 +89,19 @@ def handle_sqlite_sync_server_side(req: dict, paths=None):
 
     count, cursor = get_items_later_than(**kwargs)
     
-    return dump_items(cursor, **req.get('dump', {}))
+    ret = dump_items(cursor, **req.get('dump', {}))
+    
+    if req.get('require_schema'):
+        ret['schema'] = subprocess.check_output(f'sqlite3 {database} ".schema"', shell=True).decode()
+    
+    columns = [
+        d[1] for d in sqlite3.connect(database).execute(
+            f'PRAGMA table_info({table_name})'
+        ).fetchall()
+    ]
+    ret['columns'] = columns
+    
+    return ret
 
 
 def get_items_later_than(
@@ -121,12 +166,26 @@ def load_items(dumpped: dict):
                 yield from msgpack.Unpacker(f)
 
 
-def _save_to_local_database(database_path, items):
-    database = _get_database(database_path)
+def _create_local_database(database_path, schema):
+    assert subprocess.run(
+        f'sqlite3 {database_path}',
+        input=schema.encode(),
+        shell=True,
+    ).returncode == 0
+
+
+def _save_to_local_database(database_path, *, table, items, columns):
+    columns_str = ','.join(columns)
+    placeholders = ','.join(['?' for _ in columns])
+
+    sql = f'insert into {table} ({columns_str}) values ({placeholders})'
+    conn = sqlite3.connect(database_path)
+    conn.executemany(sql, list(items))
+    conn.commit()
 
 
 def _get_database(database: str|peewee.SqliteDatabase):
-    if isinstance(database, str):
+    if isinstance(database, (str, Path)):
         return peewee.SqliteDatabase(database)
     else:
         return database
