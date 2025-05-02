@@ -1,14 +1,15 @@
 [project]
 name = "fans"
-version = "0.0.61"
+version = "0.0.63"
 description = "fans656's python library"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
     "apscheduler>=3.11.0",
     "build>=1.2.2.post1",
     "deepmerge>=2.0",
     "dill>=0.3.9",
+    "duf>=0.0.14",
     "httpx>=0.28.1",
     "janus>=2.0.0",
     "msgpack>=1.1.0",
@@ -24,7 +25,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "duf>=0.0.12",
+    "duf>=0.0.14",
     "freezegun>=1.5.1",
     "pytest>=8.3.4",
     "pytest-asyncio>=0.25.2",

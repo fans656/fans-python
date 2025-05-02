@@ -1,4 +1,7 @@
-from tabulate import tabulate
+try:
+    from tabulate import tabulate
+except ImportError:
+    pass
 
 
 def duration(seconds):
