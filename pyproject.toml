@@ -1,6 +1,6 @@
 [project]
 name = "fans"
-version = "0.0.63"
+version = "0.0.66"
 description = "fans656's python library"
 readme = "README.md"
 requires-python = ">=3.10"

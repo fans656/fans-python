@@ -1,8 +1,10 @@
+import re
 import shlex
 
 
 def parse_query_expr(expr: str):
-    tokens = list(shlex.shlex(expr, posix=True, punctuation_chars=True))
+    expr = re.sub(r'([!()&|])', r' \1 ', expr)
+    tokens = shlex.split(expr)
     tokens = _normalized_tokens(tokens)
     parser = Parser(tokens)
     tree = parser.parse()
