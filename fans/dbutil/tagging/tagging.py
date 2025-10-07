@@ -14,17 +14,17 @@ Then we can do query:
 This utility use a sqlite table to store the tagging info and power the query.
 
 To initialize, construct a `tagging` instance passing the (peewee) database and (optional) table name:
-    
+
     tagging = dbutil.tagging(peewee.SqliteDatabase(':memory:'), 'person_tag')
 
 By default entity is represented by `int` key:
-    
+
     tagging.add_tag(1, 'odd')
     tagging.add_tag(2, 'even', 'prime')
     tagging.add_tag([3, 5, 7], 'prime')
 
 but you can also specify key type when constructing `tagging`:
-    
+
     dbutil.tagging(peewee.SqliteDatabase(':memory:'), key_type=str)
 
     dbutil.tagging(peewee.SqliteDatabase(':memory:'), key_type=float)
@@ -32,11 +32,11 @@ but you can also specify key type when constructing `tagging`:
     dbutil.tagging(peewee.SqliteDatabase(':memory:'), key_type=(float, str))  # composite key
 
 Query entities is by the `.find` method:
-    
+
     tagging.find('prime')  # => [2, 3, 5, 7]
 
 The argument to `.find` is actually a boolean expression in string form:
-    
+
     tagging.find('prime & odd')  # use '&' for AND
     tagging.find('prime odd')  # implicit AND
 
@@ -47,11 +47,11 @@ The argument to `.find` is actually a boolean expression in string form:
     tagging.find('(even | prime) & odd')  # nested expression
 
 To get all tags of a given entity, use `.tags(key)`:
-    
+
     tagging.tags(2)  # ['even', 'prime']
 
 without argument, `.tags()` return all existing tags:
-    
+
     tagging.tags()  # ['even', 'odd', 'prime']
 """
 import operator
@@ -60,6 +60,7 @@ import functools
 from typing import Optional
 
 import peewee
+from fans.fn import chunks
 
 from .parse import parse_query_expr
 
@@ -69,7 +70,7 @@ EntityKey = _EntityKey | tuple[_EntityKey]
 
 
 class tagging:
-    
+
     def __init__(
         self,
         database: 'peewee.SqliteDatabase',
@@ -80,24 +81,31 @@ class tagging:
         self.table_name = table_name
         self.key_type = key_type
         self.is_composite_key = isinstance(key_type, (tuple, list))
-        self.key_cols = [f"key{i}" for i in range(len(key_type))] if self.is_composite_key else ['key0']
+        self.key_cols = [
+            f"key{i}" for i in range(len(key_type))
+        ] if self.is_composite_key else ['key0']
         self.model = self._make_model(database, table_name, key_type)
-        
+
         self.database.bind([self.model])
         self.database.create_tables([self.model])
-    
-    def add_tag(self, keys_or_key, *tags):
-        if isinstance(keys_or_key, list):
-            keys = keys_or_key
+
+    def add_tag(self, keys_or_key, *tags, chunk_size=500):
+        if tags:
+            if isinstance(keys_or_key, list):
+                keys = keys_or_key
+            else:
+                keys = [keys_or_key]
+
+            items = list(itertools.product(keys, tags))
+            if self.is_composite_key:
+                items = [_item_from_tuple(*d) for d in items]
+
+            self.model.insert_many(items).on_conflict_ignore().execute()
         else:
-            keys = [keys_or_key]
-        
-        items = list(itertools.product(keys, tags))
-        if self.is_composite_key:
-            items = [_item_from_tuple(*d) for d in items]
-        
-        self.model.insert_many(items).on_conflict_ignore().execute()
-    
+            tag_items = keys_or_key
+            for chunk in chunks(tag_items, chunk_size):
+                self.model.insert_many(chunk).on_conflict_ignore().execute()
+
     def find(self, expr: str, return_query: bool = False):
         m = self.model
         key_fields = [getattr(m, key_col) for key_col in self.key_cols]
@@ -121,7 +129,7 @@ class tagging:
                 return [tuple(getattr(d, key_col) for key_col in self.key_cols) for d in query]
             else:
                 return [d.key0 for d in query]
-    
+
     def tags(self, key: Optional[EntityKey] = ...):
         m = self.model
         query = m.select(m.tag).distinct()
@@ -154,9 +162,9 @@ class tagging:
         cls_body['tag'] = peewee.TextField(index=True)
 
         Model = type(table_name, (peewee.Model,), cls_body)
-        
+
         return Model
-    
+
 
 def _key_type_to_peewee_field(key_type):
     if key_type is int:

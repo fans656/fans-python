@@ -38,7 +38,7 @@ def test_usage():
     tagging.add_tag([0, 1, 8], 'cube')
     tagging.add_tag(6, 'perfect')
     tagging.add_tag([1, 2, 6], 'factorial')
-    
+
     # single tag expr
     assert set(tagging.find('prime')) == {2,3,5,7}
 
@@ -47,13 +47,13 @@ def test_usage():
 
     # simple AND expr
     assert set(tagging.find('prime factorial')) == {2}
-    
+
     # complex
     assert set(tagging.find('(cube | square) even')) == {0,4,8}
     assert set(tagging.find('odd (cube | square)')) == {1,9}
     assert set(tagging.find('even !factorial !cube')) == {4}
-    
-    
+
+
     # test get tags
     assert set(tagging.tags(0)) == {'even', 'square', 'cube'}
     assert set(tagging.tags(1)) == {'odd', 'square', 'cube', 'factorial'}
@@ -85,15 +85,15 @@ def test_get_all_tags():
 
 def test_can_return_query():
     db = peewee.SqliteDatabase(':memory:')
-    
+
     class Entity(peewee.Model):
-        
+
         key = peewee.IntegerField(primary_key=True)
         name = peewee.TextField()
-    
+
     db.bind([Entity])
     db.create_tables([Entity])
-    
+
     Entity.insert_many([
         {'key': 1, 'name': 'Alice'},
         {'key': 2, 'name': 'Bob'},
@@ -104,11 +104,11 @@ def test_can_return_query():
     tagging.add_tag(1, 'bar')
     tagging.add_tag(2, 'bar')
     tagging.add_tag(2, 'baz')
-    
+
     sub_query = tagging.find('foo', return_query=True)
     query = Entity.select(Entity.name).where(Entity.key << sub_query)
     assert set([d.name for d in query]) == {'Alice'}
-    
+
     sub_query = tagging.find('bar', return_query=True)
     query = Entity.select(Entity.name).where(Entity.key << sub_query)
     assert set([d.name for d in query]) == {'Alice', 'Bob'}
@@ -135,8 +135,20 @@ def test_composite_key():
     tagging.add_tag((1.5, 'foo'), 'red')
     tagging.add_tag((1.5, 'bar'), 'red')
     tagging.add_tag((3.0, 'baz'), 'blue')
-    
+
     assert set(tagging.find('red')) == {(1.5, 'foo'), (1.5, 'bar')}
     assert set(tagging.find('blue')) == {(3.0, 'baz')}
 
     assert set(tagging.tags()) == {'red', 'blue'}
+
+
+def test_batch_tagging():
+    db = peewee.SqliteDatabase(':memory:')
+    tagging = dbutil.tagging(db)
+    tagging.add_tag([
+        (1, 'foo'),
+        (1, 'bar'),
+        (2, 'foo'),
+    ])
+    assert set(tagging.find('foo')) == {1, 2}
+    assert set(tagging.find('bar')) == {1}
