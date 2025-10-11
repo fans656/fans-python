@@ -112,8 +112,7 @@ class Jober:
             job = args[0]
         else:
             job = self.add_job(*args, **kwargs)
-        run = job.new_run()
-        self._sched.run_singleshot(self._make_job_for_run(run, job, **kwargs))
+        self._sched.run_singleshot(self._prepare_run(job, **kwargs))
         return job
 
     def add_job(
@@ -129,7 +128,7 @@ class Jober:
         
         if sched is not None:
             if isinstance(sched, (int, float)):
-                self._sched.run_interval(job, sched)
+                self._sched.run_interval(self._prepare_run(job), sched)
             elif isinstance(sched, str):
                 self._sched.run_cron(job, sched)
             else:
@@ -298,7 +297,9 @@ class Jober:
                 except:
                     traceback.print_exc()
 
-    def _make_job_for_run(self, run, job, args=None, kwargs=None, **__):
+    def _prepare_run(self, job, args=None, kwargs=None, **__):
+        run = job.new_run()
+
         def _run():
             if args is not None or kwargs is not None:
                 target = job.target.bind(args or [], kwargs or {})
