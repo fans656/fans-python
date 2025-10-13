@@ -13,6 +13,10 @@ logger = get_logger(__name__)
 
 
 class Job:
+    
+    @staticmethod
+    def from_dict(spec: dict):
+        pass
 
     def __init__(
             self,
@@ -20,12 +24,15 @@ class Job:
             id: str = None,
             name: str = None,
             extra: any = None,
+            max_instances: int = 1,
     ):
         self.target = target
         self.id = id or uuid.uuid4().hex
         self.job_id = self.id
         self.name = name
         self.extra = extra
+        
+        self.max_instances = max_instances
 
         self._id_to_run = {}
         self._last_run_id = None
@@ -110,3 +117,10 @@ class Job:
 
         run = self._id_to_run[run_id]
         run._on_run_event(event)
+    
+    @property
+    def _apscheduler_kwargs(self):
+        ret = {
+            'max_instances': self.max_instances,
+        }
+        return ret

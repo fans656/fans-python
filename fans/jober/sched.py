@@ -37,26 +37,29 @@ class Sched:
     def stop(self):
         self._sched.shutdown()
 
-    def run_singleshot(self, func, args=(), kwargs={}):
+    def run_singleshot(self, func, args=(), kwargs={}, **extra_kwargs):
         job = self._sched.add_job(
             func,
             args=args,
             kwargs=kwargs,
+            **extra_kwargs,
         )
 
-    def run_interval(self, func, interval: int|float, args=(), kwargs={}):
+    def run_interval(self, func, interval: int|float, args=(), kwargs={}, **extra_kwargs):
         job = self._sched.add_job(
             func,
             args=args,
             kwargs=kwargs,
             trigger=IntervalTrigger(seconds=interval),
+            **extra_kwargs,
         )
 
-    def run_cron(self, func, crontab: str, args=(), kwargs={}):
+    def run_cron(self, func, crontab: str, args=(), kwargs={}, **extra_kwargs):
         trigger = CronTrigger.from_crontab(crontab, timezone=self._timezone)
         job = self._sched.add_job(
             func,
             args=args,
             kwargs=kwargs,
             trigger=trigger,
+            **extra_kwargs,
         )

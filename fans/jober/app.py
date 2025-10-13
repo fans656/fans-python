@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import FastAPI, Request
 from sse_starlette.sse import EventSourceResponse
@@ -20,7 +20,7 @@ def paginated_response(item_model):
 @app.get('/jobs', response_model=paginated_response(create_model('Job', **{
     'id': (str, Field()),
     'name': (Optional[str], Field(default=None)),
-    'extra': (Optional[str], Field(default=None)),
+    'extra': (Optional[Any], Field(default=None)),
 })))
 async def jobs_():
     """List existing jobs"""

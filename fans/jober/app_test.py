@@ -30,6 +30,22 @@ def use_instance(conf: bunch = {}):
     Jober._instance = None
 
 
+class Test_jobs:
+
+    def test_empty(self, client):
+        """By default there is no jobs"""
+        assert client.get('/api/jobs').json()['data'] == []
+    
+    def test_non_empty(self, jober, mocker, client):
+        """Can list existed jobs"""
+        jober.add_job(mocker.Mock())
+        jober.add_job(mocker.Mock())
+        jobs = client.get('/api/jobs').json()['data']
+        assert len(jobs) == 2
+        for job in jobs:
+            assert 'id' in job
+
+
 class Test_info:
 
     def test_jober_info(self, client, tmp_path):
@@ -57,22 +73,6 @@ class Test_info:
     #    #job.wait()
     #    #data = client.get('/api/info', params={'job_id': job.id}).json()
     #    #assert data['id'] == job.id
-
-
-class Test_jobs:
-
-    def test_empty(self, client):
-        """By default there is no jobs"""
-        assert client.get('/api/jobs').json()['data'] == []
-    
-    def test_non_empty(self, jober, mocker, client):
-        """Can list existed jobs"""
-        jober.add_job(mocker.Mock())
-        jober.add_job(mocker.Mock())
-        jobs = client.get('/api/jobs').json()['data']
-        assert len(jobs) == 2
-        for job in jobs:
-            assert 'id' in job
 
 
 class Test_prune:

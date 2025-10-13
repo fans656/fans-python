@@ -71,7 +71,7 @@ class Jober:
         
         self._load_jobs_from_conf()
     
-    def wait(self, timeout: float = None, stop: bool = True):
+    def wait(self, timeout: float = None):
         try:
             beg = time.time()
             while True:
@@ -97,11 +97,7 @@ class Jober:
         for job in self.jobs:
             yield job.id
 
-    def run_job(
-            self,
-            *args,
-            **kwargs,
-    ) -> 'Run':
+    def run_job(self, *args, **kwargs) -> 'Run':
         """
         Sample usages:
         
@@ -111,35 +107,40 @@ class Jober:
             job = args[0]
         else:
             job = self.add_job(*args, **kwargs)
-        self._sched.run_singleshot(self._prepare_run(job, **kwargs))
+
+        self._sched.run_singleshot(self._prepare_run(job, **kwargs), **job._apscheduler_kwargs)
+
         return job
 
     def add_job(
             self,
             *args,
             when: int|float|str = None,
-            sched: int|float|str = None,  # deprecating
             initial_run: bool = True,
             **kwargs,
     ) -> Job:
         """Make a job and add to jober."""
         job = self.make_job(*args, **kwargs)
-        self._id_to_job[job.id] = job
-        
-        if when is None and sched is not None:
-            when = sched
+
+        self._add_job(job)
         
         if when is not None:
-            if isinstance(when, (int, float)):
-                self._sched.run_interval(self._prepare_run(job), when)
-            elif isinstance(when, str):
-                self._sched.run_cron(self._prepare_run(job), when)
-            else:
-                raise NotImplementedError(f'unsupported when: {when}')
+            self._schedule_job(job, when)
 
         self.start()  # ensure started
 
         return job
+    
+    def _schedule_job(self, job, when):
+        if isinstance(when, (int, float)):
+            self._sched.run_interval(self._prepare_run(job), when, **job._apscheduler_kwargs)
+        elif isinstance(when, str):
+            self._sched.run_cron(self._prepare_run(job), when, **job._apscheduler_kwargs)
+        else:
+            raise NotImplementedError(f'unsupported when: {when}')
+    
+    def _add_job(self, job):
+        self._id_to_job[job.id] = job
     
     def prune_jobs(self) -> list[Job]:
         pruned = []
@@ -163,7 +164,6 @@ class Jober:
     def run_for_a_while(self, seconds: float = 0.001):
         time.sleep(seconds)
 
-    # TODO: sched can be separated out from Job?
     def make_job(
             self,
             target: Union[str, Callable],
@@ -176,7 +176,7 @@ class Jober:
             cwd: str = None,
             shell: bool = False,
             process: bool = False,
-            **__,
+            **job_kwargs,
     ) -> 'Job':
         """
         Make a job without adding to jober.
@@ -198,6 +198,7 @@ class Jober:
             id=id,
             name=name,
             extra=extra,
+            **job_kwargs,
         )
         return job
 

@@ -1,3 +1,14 @@
+todo:
+- disable/re-enable interval/cron job 
+- keep-alive sched
+- check default execution model
+- capture override of job
+- allow multiple runs (by default no multiple runs)
+- feature: can replace run args/kwargs
+
+---
+
+
 Intro
 ================================================================================
 
