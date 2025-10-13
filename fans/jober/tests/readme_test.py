@@ -10,18 +10,38 @@ from fans.jober.tests.samples.echo import echo
 
 
 def test_simple():
-    jober = Jober(capture=False)
-    jober.run_job('sleep 0.01 && date', shell=True).wait()
-    jober.stop()
+    Jober(capture=False).run_job('date').wait()
 
 
 def test_periodical():
-    def func():
-        print(datetime.datetime.now())
-    jober = Jober(capture=False)
-    jober.add_job(func, sched=0.01)
-    jober.wait(0.1)
-    jober.stop()
+    Jober(capture=False).add_job(lambda: print(time.time()), when=1).wait()
+
+
+def test_cron(jober, mocker):
+    with freeze_time('2025-01-01 00:00:00+08:00'):
+        jober = Jober()
+        func = mocker.Mock()
+        jober.add_job(func, when='0 22 * * *')
+
+        with freeze_time('2025-01-01 21:59:00+08:00'):
+            jober._sched._sched.wakeup()
+            time.sleep(0.1)
+
+        assert func.call_count == 0
+
+        with freeze_time('2025-01-01 22:00:00+08:00'):
+            jober._sched._sched.wakeup()
+            time.sleep(0.1)
+
+        assert func.call_count == 1
+
+        with freeze_time('2025-01-02 22:00:00+08:00'):
+            jober._sched._sched.wakeup()
+            time.sleep(0.1)
+
+        assert func.call_count == 2
+        
+        jober.stop()
 
 
 def test_shell_command(jober):
@@ -99,29 +119,6 @@ def test_cwd(jober, tmp_path):
 
 
 def test_interval(jober):
-    job = jober.add_job('date', sched=0.01)
+    job = jober.add_job('date', when=0.01)
     time.sleep(0.1)
     assert len(job.output.split('\n')) >= 10
-
-
-def test_cron(jober):
-    job = jober.add_job('date', sched='0 22 * * *')
-    jober.start()
-
-    with freeze_time('2025-01-01 08:00:00', tz_offset=+8):
-
-        with freeze_time('2025-01-01 22:00:00'):
-            time.sleep(0.1)
-            #print('now', datetime.datetime.now())
-
-        with freeze_time('2025-01-01 23:00:00'):
-            time.sleep(0.1)
-
-        with freeze_time('2025-01-02 22:00:00'):
-            time.sleep(0.1)
-
-        with freeze_time('2025-01-02 23:00:00'):
-            time.sleep(0.1)
-    
-        
-    print(job.output)

@@ -34,24 +34,25 @@ class Jober:
         'conf_path': None,
         'capture': 'memory',
         'n_thread_pool_workers': 32,
+        'timezone': 'Asia/Shanghai',
         'jobs': [],
     }
 
     _instance = None
 
-    @staticmethod
-    def get_instance():
-        if Jober._instance is None:
-            Jober._instance = Jober(**Jober.conf)
-        return Jober._instance
+    @classmethod
+    def set_instance(cls, instance):
+        cls._instance = instance
 
-    def __init__(self, **conf):
-        for key, value in Jober.conf.items():
-            conf.setdefault(key, value)
-        if conf.get('conf_path'):
-            with Path(conf['conf_path']).open() as f:
-                conf.update(yaml.safe_load(f))
-        self.conf = bunch(conf)
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = Jober(**cls.conf)
+        return cls._instance
+
+    def __init__(self, conf_path=None, **conf):
+        self.conf = _prepare_config(conf_path, conf)
+        self.started = False
 
         self._id_to_job = {}
         self._events_queue = queue.Queue()
@@ -62,17 +63,15 @@ class Jober:
                 'initializer': _init_pool,
                 'initargs': (self._events_queue,),
             },
+            timezone=self.conf.timezone,
         )
 
         self._thread_events_thread = threading.Thread(target=self._collect_events, daemon=True)
-
         self._listeners = set()
-
-        self.started = False
         
         self._load_jobs_from_conf()
     
-    def wait(self, timeout: float = None):
+    def wait(self, timeout: float = None, stop: bool = True):
         try:
             beg = time.time()
             while True:
@@ -118,7 +117,8 @@ class Jober:
     def add_job(
             self,
             *args,
-            sched: int|float|str = None,
+            when: int|float|str = None,
+            sched: int|float|str = None,  # deprecating
             initial_run: bool = True,
             **kwargs,
     ) -> Job:
@@ -126,13 +126,16 @@ class Jober:
         job = self.make_job(*args, **kwargs)
         self._id_to_job[job.id] = job
         
-        if sched is not None:
-            if isinstance(sched, (int, float)):
-                self._sched.run_interval(self._prepare_run(job), sched)
-            elif isinstance(sched, str):
-                self._sched.run_cron(job, sched)
+        if when is None and sched is not None:
+            when = sched
+        
+        if when is not None:
+            if isinstance(when, (int, float)):
+                self._sched.run_interval(self._prepare_run(job), when)
+            elif isinstance(when, str):
+                self._sched.run_cron(self._prepare_run(job), when)
             else:
-                raise NotImplementedError(f'unsupported sched: {sched}')
+                raise NotImplementedError(f'unsupported when: {when}')
 
         self.start()  # ensure started
 
@@ -170,7 +173,6 @@ class Jober:
             id: str = None,
             name: str = None,
             extra: any = None,
-            sched: str = None,
             cwd: str = None,
             shell: bool = False,
             process: bool = False,
@@ -182,7 +184,6 @@ class Jober:
         target: Union[str, Callable]
         args: tuple = None
         kwargs: dict = None
-        sched: str = None
         """
         target = Target.make(
             target,
@@ -333,6 +334,24 @@ class Jober:
                 cwd=spec.get('cwd'),
                 shell=spec.get('shell'),
             )
+
+
+def _prepare_config(conf_path, conf: dict):
+    if conf_path:
+        conf['conf_path'] = conf_path
+
+    # set default for missing values
+    for key, value in Jober.conf.items():
+        conf.setdefault(key, value)
+
+    # maybe load from file
+    if conf.get('conf_path'):
+        fpath = Path(conf['conf_path']).expanduser()
+        logger.info(f"loading config from {fpath}")
+        with fpath.open() as f:
+            conf.update(yaml.safe_load(f) or {})
+
+    return bunch(conf)
 
 
 def _normalized_job_spec(spec: dict):

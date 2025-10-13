@@ -1,35 +1,34 @@
 Intro
 ================================================================================
 
-`fans.jober` can manage multiple executables as jobs.
+`fans.jober` is for managing executables as jobs.
 
-In the most simplified form, you create a `Jober` instance and run job in it:
-
-    from fans.jober import Jober
-
-
-    jober = Jober(capture=False)
-    jober.run_job('sleep 0.01 && date', shell=True).wait()
-
-or you can make a function run periodically:
-
-    import datetime
+You simply create a `Jober` instance and run job in it:
 
     from fans.jober import Jober
+
+    Jober(capture=False).run_job('date').wait()
+
+or run a callable periodically:
     
-
+    import time
+    
     def func():
-        print(datetime.datetime.now())
-
+        print(time.time())
 
     jober = Jober(capture=False)
-    jober.add_job(func, sched=1)
+    jober.add_job(func, when=1)  # run per second
     jober.wait()
+
+or run a command daily (cron like):
+
+    jober = Jober()
+    jober.add_job('rsync ~/enos/ /mnt/d/backup/enos/', when='0 22 * * *')
 
 Executables
 ================================================================================
 
-Executable is what got executed when a job runs, below are supported types of executables:
+Executable is job execution target, having following supported types:
 - Shell command
 - Python function
 - Python module
@@ -45,7 +44,7 @@ if not specifying `shell=True`, the string will be `shlex` split and pass to `su
 
     jober.run_job('ls -lh')
 
-which is equivalent to:
+equivalent to:
 
     jober.run_job(['ls', '-lh'])
 
@@ -125,11 +124,11 @@ Run executable now and only once:
 
 Run every `<interval>` seconds:
 
-    jober.run_job('date', sched=0.5)  # run every 500ms
+    jober.run_job('date', when=0.5)  # run every 500ms
 
 ## Cron
 
-    jober.run_job('date', sched='0 22 * * *')  # run at 10:00 PM everyday
+    jober.run_job('date', when='0 22 * * *')  # run at 10:00 PM everyday
 
 --------------------------------------------------------------------------------
 

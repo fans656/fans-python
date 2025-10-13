@@ -1,6 +1,12 @@
+import logging
+
 import click
+from fastapi import FastAPI
 
 from .jober import Jober
+
+
+logging.root.setLevel(logging.INFO)
 
 
 @click.group
@@ -9,17 +15,19 @@ def cli():
 
 
 @cli.command()
+@click.option('--host', default='127.0.0.1')
 @click.option('-p', '--port', type=int, default=8000)
-@click.option('-c', '--config')
-def serve(port: int, config: str):
-    """Start jober as HTTP server"""
+@click.argument('config', required=False)
+def serve(host: str, port: int, config: str):
+    """Run in server mode"""
     import uvicorn
 
-    from .app import app
+    from .app import root_app
 
-    Jober.get_instance(conf=config)
+    jober = Jober(config)
+    Jober.set_instance(jober)
 
-    uvicorn.run(app, port=port)
+    uvicorn.run(root_app, host=host, port=port)
 
 
 if __name__ == '__main__':

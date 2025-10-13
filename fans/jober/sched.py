@@ -16,8 +16,10 @@ class Sched:
             *,
             n_threads: int,
             thread_pool_kwargs = {},
+            timezone = 'Asia/Shanghai',
             **_,
     ):
+        self._timezone = pytz.timezone(timezone)
         self._sched = BackgroundScheduler(
             executors={
                 'default': {
@@ -26,7 +28,7 @@ class Sched:
                     'pool_kwargs': thread_pool_kwargs,
                 },
             },
-            timezone=pytz.timezone('Asia/Shanghai'),
+            timezone=self._timezone,
         )
 
     def start(self):
@@ -51,7 +53,7 @@ class Sched:
         )
 
     def run_cron(self, func, crontab: str, args=(), kwargs={}):
-        trigger = CronTrigger.from_crontab(crontab)
+        trigger = CronTrigger.from_crontab(crontab, timezone=self._timezone)
         job = self._sched.add_job(
             func,
             args=args,
