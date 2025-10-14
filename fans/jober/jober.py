@@ -131,6 +131,12 @@ class Jober:
 
         return job
     
+    def disable_job(self, job):
+        pass  # TODO
+    
+    def enable_job(self, job):
+        pass  # TODO
+    
     def _schedule_job(self, job, when):
         if isinstance(when, (int, float)):
             self._sched.run_interval(self._prepare_run(job), when, **job._apscheduler_kwargs)
