@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from .target import Target
+from fans.jober.target import Target
 
 
 class Test_command_target:
@@ -49,7 +49,7 @@ class Test_python_script_callable:
 
     def test_make(self, tmp_path):
         fpath = tmp_path / 'foo.txt'
-        script_path = Path(__file__).absolute().parent / 'tests/samples/echo.py'
+        script_path = Path(__file__).absolute().parent / 'samples/echo.py'
 
         target = Target.make(f'{script_path}:echo', args=('foo',), kwargs={'count': 3, 'file': f'{fpath}'})
 
@@ -74,7 +74,7 @@ class Test_python_script:
 
     def test_make(self, tmp_path):
         fpath = tmp_path / 'foo.txt'
-        script_path = Path(__file__).absolute().parent / 'tests/samples/echo.py'
+        script_path = Path(__file__).absolute().parent / 'samples/echo.py'
 
         target = Target.make(f'{script_path}', args=('foo',), kwargs={'count': 3, 'file': f'{fpath}'})
 

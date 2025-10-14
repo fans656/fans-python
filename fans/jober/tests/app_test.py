@@ -5,8 +5,8 @@ import pytest
 from starlette.testclient import TestClient
 from fans.bunch import bunch
 
-from .app import root_app
-from .jober import Jober
+from fans.jober.app import root_app
+from fans.jober.jober import Jober
 
 
 @pytest.fixture

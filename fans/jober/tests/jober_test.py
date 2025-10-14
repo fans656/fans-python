@@ -6,7 +6,7 @@ from fans.path import Path
 from fans.bunch import bunch
 
 from fans.jober.jober import Jober, DEFAULT_MODE
-from fans.jober.conftest import parametrized
+from fans.jober.tests.conftest import parametrized
 
 
 class Test_load_jobs_from_conf:

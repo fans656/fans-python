@@ -1,7 +1,7 @@
 import pytest
 
 from fans.jober.event import EventType
-from .run import Run
+from fans.jober.run import Run
 
 
 class Test_run:

@@ -1,7 +1,7 @@
 import pytest
 
 from fans.jober import Jober
-from fans.jober.conftest import parametrized
+from fans.jober.tests.conftest import parametrized
 
 
 class Test_run:
