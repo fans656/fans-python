@@ -12,21 +12,22 @@ class EventType:
 
 class RunEventer:
 
-    def __init__(self, *, job_id, run_id):
+    def __init__(self, *, job_id, run_id, queue):
         self.job_id = job_id
         self.run_id = run_id
+        self.queue = queue
 
     def begin(self):
-        return self._event(EventType.job_run_begin)
+        self.queue.put(self._event(EventType.job_run_begin))
 
     def done(self):
-        return self._event(EventType.job_run_done)
+        self.queue.put(self._event(EventType.job_run_done))
 
     def error(self):
-        return self._event(EventType.job_run_error, trace = traceback.format_exc())
+        self.queue.put(self._event(EventType.job_run_error, trace=traceback.format_exc()))
 
     def output(self, content):
-        return self._event(EventType.job_run_output, content = content)
+        self.queue.put(self._event(EventType.job_run_output, content=content))
 
     def _event(self, event_type, **data):
         return {

@@ -51,8 +51,7 @@ def redirect(
         enable_proxy()
     ident = threading.get_ident()
     output = Output()
-    output.run_eventer = RunEventer(job_id = job_id, run_id = run_id)
-    output.queue = queue
+    output.run_eventer = RunEventer(job_id=job_id, run_id=run_id, queue=queue)
     thread_proxies[ident] = output
     Logger.reset_handlers(module_levels = module_logging_levels)
     return thread_proxies[ident]
@@ -61,5 +60,5 @@ def redirect(
 class Output:
 
     def write(self, string):
-        if self.queue and self.run_eventer:
-            self.queue.put(self.run_eventer.output(string))
+        if self.run_eventer:
+            self.run_eventer.output(string)

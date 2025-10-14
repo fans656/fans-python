@@ -1,7 +1,6 @@
 import time
 import uuid
 import queue
-import inspect
 import traceback
 import threading
 import functools
@@ -19,7 +18,6 @@ from .target import Target
 from . import util
 from .job import Job
 from .run import Run
-from .event import RunEventer
 
 
 logger = get_logger(__name__)
@@ -305,29 +303,20 @@ class Jober:
                 except:
                     traceback.print_exc()
 
-    def _prepare_run(self, job, args=None, kwargs=None, **__):
-        run = job.new_run()
+    def _prepare_run(self, job, args=(), kwargs={}, **__):
+        if self.conf.capture:
+            before_run = lambda: _prepare_thread_run(
+                self._events_queue, run.job_id, run.run_id,
+                module_logging_levels=self._sched.module_logging_levels,
+            )
+        else:
+            before_run = lambda: None
+
+        run = job.new_run(args, kwargs)
 
         def _run():
-            if args is not None or kwargs is not None:
-                target = job.target.bind(args or [], kwargs or {})
-            else:
-                target = job.target
-            
-            if self.conf.capture:
-                prepare = lambda: _prepare_thread_run(
-                    self._events_queue, run.job_id, run.run_id,
-                    module_logging_levels=self._sched.module_logging_levels,
-                )
-            else:
-                prepare = None
+            return run(events_queue=_events_queue, before_run=before_run)
 
-            return _run_job(**{
-                'target': target,
-                'job_id': run.job_id,
-                'run_id': run.run_id,
-                'prepare': prepare,
-            })
         return _run
     
     def _load_jobs_from_conf(self):
@@ -378,20 +367,6 @@ def _init_pool(queue: queue.Queue):
     _events_queue = queue
 
 
-def _run_job(*, target, job_id, run_id, prepare):
-    eventer = RunEventer(job_id=job_id, run_id=run_id)
-    try:
-        _events_queue.put(eventer.begin())
-        if prepare:
-            prepare()
-        _consumed(target())
-    except:
-        print(traceback.format_exc()) # output traceback in job run thread
-        _events_queue.put(eventer.error())
-    else:
-        _events_queue.put(eventer.done())
-
-
 def _prepare_thread_run(thread_out_queue, job_id, run_id, module_logging_levels={}):
     util.redirect(
         queue = thread_out_queue,
@@ -399,13 +374,6 @@ def _prepare_thread_run(thread_out_queue, job_id, run_id, module_logging_levels=
         run_id = run_id,
         module_logging_levels = module_logging_levels,
     )
-
-
-def _consumed(value):
-    if inspect.isgenerator(value):
-        # ensure a generator function is iterated
-        for _ in value:
-            pass
 
 
 _events_queue = None

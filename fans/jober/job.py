@@ -92,12 +92,14 @@ class Job:
     def get_run(self, run_id: str) -> Optional[Run]:
         return self._id_to_run.get(run_id)
 
-    def new_run(self):
+    def new_run(self, args, kwargs):
         run_id = uuid.uuid4().hex
         run = Run(
             target=self.target,
             job_id=self.id,
             run_id=run_id,
+            args=args,
+            kwargs=kwargs,
         )
         self._id_to_run[run_id] = run
         return run

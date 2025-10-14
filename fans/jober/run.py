@@ -1,11 +1,15 @@
 import time
 import queue
+import inspect
 import asyncio
+import traceback
 from typing import Callable, Optional
 
 from fans.logger import get_logger
+from fans.fn import noop
 
-from fans.jober.event import EventType
+from fans.jober.event import EventType, RunEventer
+from fans.jober.target import Target
 
 
 logger = get_logger(__name__)
@@ -13,10 +17,15 @@ logger = get_logger(__name__)
 
 class Run:
 
-    def __init__(self, *, target, job_id, run_id):
-        self.target = target
+    def __init__(self, *, target, job_id, run_id, args=(), kwargs={}):
+        if args or kwargs:
+            self.target = target.bind(args, kwargs)
+        else:
+            self.target = target
         self.job_id = job_id
         self.run_id = run_id
+        self.args = args
+        self.kwargs = kwargs
         self.status = 'init'
         self.trace = None
         self._outputs = []
@@ -27,8 +36,26 @@ class Run:
         # NOTE: this does not support multiple clients
         self._events_queue = queue.Queue()
     
-    def __call__(self, *args, **kwargs):
-        return self.target(*args, **kwargs)
+    def __call__(self, *, events_queue, before_run=noop):
+        eventer = RunEventer(job_id=self.job_id, run_id=self.run_id, queue=events_queue)
+        try:
+            eventer.begin()
+
+            before_run()
+
+            ret = self.target()
+
+            if inspect.isgenerator(ret):
+                # ensure a generator function is iterated
+                for _ in ret:
+                    pass
+            
+            eventer.done()
+
+            return ret
+        except:
+            print(traceback.format_exc()) # output traceback in job run thread
+            eventer.error()
 
     @property
     def output(self) -> str:
@@ -95,7 +122,7 @@ class Run:
 class DummyRun(Run):
 
     def __init__(self):
-        super().__init__(target=lambda *_, **__: None, job_id='dummy', run_id='dummy')
+        super().__init__(target=Target.make(lambda *_, **__: None), job_id='dummy', run_id='dummy')
 
     def __bool__(self):
         return False
