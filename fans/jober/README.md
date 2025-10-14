@@ -1,14 +1,3 @@
-todo:
-- disable/re-enable interval/cron job 
-- keep-alive sched
-- check default execution model
-- capture override of job
-- allow multiple runs (by default no multiple runs)
-- feature: can replace run args/kwargs
-
----
-
-
 Intro
 ================================================================================
 
@@ -124,6 +113,7 @@ There are multiple types of schedule supported:
 - single shot
 - interval
 - cron
+- keep alive
 
 ## Single shot
 
@@ -140,6 +130,20 @@ Run every `<interval>` seconds:
 ## Cron
 
     jober.run_job('date', when='0 22 * * *')  # run at 10:00 PM everyday
+
+## Keep Alive
+
+...todo
+
+TODO
+================================================================================
+
+- disable/re-enable interval/cron job 
+- keep-alive sched
+- check default execution model
+- capture override of job
+- allow multiple runs (by default no multiple runs)
+- feature: can replace run args/kwargs
 
 --------------------------------------------------------------------------------
 
@@ -168,8 +172,6 @@ usages
 
 ---
 
-interval job: no new run if previous one isn't finished?
-
 output collection:
 - collect to where?
   - no collection
@@ -179,12 +181,6 @@ output collection:
 - note: sub-threads in run thread
 - binary output?
 - output encoding
-
-schedule types:
-- singleshot
-- interval
-- cron
-- date
 
 run mode:
 - in thread pool
@@ -201,11 +197,5 @@ run operations:
 - stop/kill run
 - re-run
 - run with different args (append? replace?)
-
-supported source:
-- callable
-- py module (callable)
-- py script (callable)
-- command line (`shell=True/False`)
 
 ensure no orphant processes
