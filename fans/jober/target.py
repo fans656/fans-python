@@ -11,85 +11,74 @@ from pathlib import Path
 from typing import Union, Callable, List, Iterable
 
 
-class TargetType:
-
-    command = 'command'
-    python_callable = 'python_callable'
-    python_script_callable = 'python_script_callable'
-    python_module_callable = 'python_module_callable'
-    python_script = 'python_script'
-    python_module = 'python_module'
-
-
 class Target:
+    """
+    Wrapper around different type of executable.
+    
+    Target can be called:
+    
+        target = Target.make('date')
+        target()
+    
+    can bind args:
+    
+        target = Target.make('ls')
+        bound_target = target.bind('-lh')
+        bound_target()
+    
+    can specify execution options:
+    
+        target = Target.make(func, process=True, encoding='gbk')
+        target()
+    
+    Following target types are supported:
+    - external executable
+        - command: execute external binary, e.g. `Target.make('ls')`
+    - python executable
+        - python_script: execute a python script using same intepreter as current process, e.g. `Target.make('crawl.py')`
+        - python_module: execute a python module using same intepreter as current process, e.g. `Target.make('crawl.prices')`
+    - python callable
+        - python_callable: execute python callable, e.g. `Target.make(func)`
+        - python_script_callable: load callable from python script, e.g. `Target.make('crawl.py:main')`
+        - python_module_callable: load callable from python module, e.g. `Target.make('crawl.prices:main')`
+    """
 
-    @classmethod
-    def make(
-            cls,
-            source: Union[Callable, str, List[str]],
-            args = (),
-            kwargs  = {},
-            **extras,
-    ):
-        if extras.get('shell'):
-            impl = CommandTarget
-        elif callable(source):
-            impl = PythonCallableTarget
-        elif isinstance(source, str):
-            parts = shlex.split(source)
-            if not parts:
-                raise ValueError(f'invalid source "{source}"')
-            impl = None
-            if len(parts) == 1:
-                if ':' in source:
-                    domain_str, func_str = source.split(':')
-                    if domain_str.endswith('.py'):
-                        impl = PythonScriptCallableTarget
-                    else:
-                        impl = PythonModuleCallableTarget
-                elif source.endswith('.py'):
-                    impl = PythonScriptTarget
-                elif '.' in source:
-                    impl = PythonModuleTarget
-            if impl is None:
-                impl = CommandTarget
-        elif isinstance(source, list):
-            impl = CommandTarget
-        else:
-            raise ValueError(f'invalid target source "{source}"')
+    class Type:
 
-        return impl(source, args, kwargs, extras=extras)
+        command = 'command'
+        python_script = 'python_script'
+        python_module = 'python_module'
+        python_callable = 'python_callable'
+        python_script_callable = 'python_script_callable'
+        python_module_callable = 'python_module_callable'
 
-    def __init__(self, source, args, kwargs, extras):
+    @staticmethod
+    def make(source: Union[Callable, str, List[str]], args = (), kwargs  = {}, **opts):
+        impl_cls = _get_impl_cls(source, **opts)
+        return impl_cls(source, args, kwargs, opts=opts)
+
+    def __init__(self, source, args, kwargs, opts):
         self.source = source
         self.args = args
         self.kwargs = kwargs
-        self.extras = extras
-    
-    def bind(self, args, kwargs):
-        return Target.make(self.source, args, kwargs, **self.extras)
+        self.opts = opts
 
     def __call__(self):
-        self.prepare_call()
-        return self.do_call()
+        self._prepare_call()
+        return self._do_call()
+    
+    def bind(self, args, kwargs):
+        return Target.make(self.source, args, kwargs, **self.opts)
 
-    def prepare_call(self):
+    def _prepare_call(self):
         pass
 
-    def do_call(self):
+    def _do_call(self):
         raise NotImplementedError()
     
     @property
-    def kwargs_as_cmdline_options(self):
-        def gen():
-            for key, value in self.kwargs.items():
-                yield f'--{key}'
-                yield f'{value}'
-        return list(gen())
-    
-    @property
     def cwd(self) -> Path:
-        return Path(self.extras.get('cwd') or os.getcwd())
+        return Path(self.opts.get('cwd') or os.getcwd())
     
     def _popen(self, cmd: str|list[str]):
         proc = subprocess.Popen(
@@ -98,10 +87,10 @@ class Target:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, # redirect to stdout
             text=True,
-            encoding=self.extras.get('encoding', 'utf-8'),
+            encoding=self.opts.get('encoding', 'utf-8'),
             bufsize=1,  # line buffered
             errors='replace',
-            shell=self.extras.get('shell', False),
+            shell=self.opts.get('shell', False),
         )
         try:
             for line in iter(proc.stdout.readline, ''):
@@ -116,24 +105,47 @@ class Target:
 
 class CommandTarget(Target):
 
-    type = TargetType.command
+    type = Target.Type.command
 
-    def do_call(self):
+    def _do_call(self):
         cmd = self.source
-        if not self.extras.get('shell'):
+        if not self.opts.get('shell'):
             if isinstance(cmd, str):
                 cmd = shlex.split(cmd)
-            cmd = [*cmd, *self.args, *self.kwargs_as_cmdline_options]
+            cmd = [*cmd, *self.args, *_to_cmdline_options(self.kwargs)]
         return self._popen(cmd)
+
+
+class PythonExecutableTarget(Target):
+
+    def _do_call(self):
+        cmd = [sys.executable, *self.get_execute_args(), *self.args, *_to_cmdline_options(self.kwargs)]
+        return self._popen(cmd)
+
+
+class PythonScriptTarget(PythonExecutableTarget):
+
+    type = Target.Type.python_script
+
+    def get_execute_args(self):
+        return (self.source,)
+
+
+class PythonModuleTarget(PythonExecutableTarget):
+
+    type = Target.Type.python_module
+
+    def get_execute_args(self):
+        return ('-m', self.source,)
 
 
 class CallableTarget(Target):
 
-    def prepare_call(self):
+    def _prepare_call(self):
         self.func = None
 
-    def do_call(self):
-        if self.extras.get('process'):
+    def _do_call(self):
+        if self.opts.get('process'):
             return self._execute_func_in_process()
         else:
             return self.func(*self.args, **self.kwargs)
@@ -144,15 +156,15 @@ class CallableTarget(Target):
 
 class PythonCallableTarget(CallableTarget):
 
-    type = TargetType.python_callable
+    type = Target.Type.python_callable
 
-    def prepare_call(self):
+    def _prepare_call(self):
         self.func = self.source
     
     def _execute_func_in_process(self):
         data = (self.func, self.args, self.kwargs)
         data_text = base64.b64encode(pickle.dumps(data)).decode("utf-8")
-        return self._popen([
+        args = [
             sys.executable,
             '-c',
             (
@@ -160,14 +172,15 @@ class PythonCallableTarget(CallableTarget):
                 f'func, args, kwargs = pickle.loads(base64.b64decode("{data_text}"));'
                 f'func(*args, **kwargs)'
             ),
-        ])
+        ]
+        return self._popen(args)
 
 
 class PythonScriptCallableTarget(CallableTarget):
 
-    type = TargetType.python_script_callable
+    type = Target.Type.python_script_callable
 
-    def prepare_call(self):
+    def _prepare_call(self):
         path, func_name = self.source.split(':')
         path = self.cwd / path
         name = hashlib.md5(str(path).encode('utf-8')).hexdigest()
@@ -200,9 +213,9 @@ class PythonScriptCallableTarget(CallableTarget):
 
 class PythonModuleCallableTarget(CallableTarget):
 
-    type = TargetType.python_module_callable
+    type = Target.Type.python_module_callable
 
-    def prepare_call(self):
+    def _prepare_call(self):
         module_name, func_name = self.source.split(':')
         spec = importlib.util.find_spec(module_name)
         module = importlib.util.module_from_spec(spec)
@@ -227,24 +240,38 @@ class PythonModuleCallableTarget(CallableTarget):
         ])
 
 
-class PythonExecutableTarget(Target):
-
-    def do_call(self):
-        cmd = [sys.executable, *self.get_execute_args(), *self.args, *self.kwargs_as_cmdline_options]
-        return self._popen(cmd)
-
-
-class PythonScriptTarget(PythonExecutableTarget):
-
-    type = TargetType.python_script
-
-    def get_execute_args(self):
-        return (self.source,)
+def _to_cmdline_options(kvs: dict):
+    def gen():
+        for key, value in kvs.items():
+            yield f'--{key}'
+            yield f'{value}'
+    return list(gen())
 
 
-class PythonModuleTarget(PythonExecutableTarget):
-
-    type = TargetType.python_module
-
-    def get_execute_args(self):
-        return ('-m', self.source,)
+def _get_impl_cls(source: str, **opts):
+    if opts.get('shell') or isinstance(source, list):
+        return CommandTarget
+    elif callable(source):
+        return PythonCallableTarget
+    elif isinstance(source, str):
+        parts = shlex.split(source)
+        if not parts:
+            raise ValueError(f'invalid source "{source}"')
+        if len(parts) == 1:
+            if ':' in source:
+                domain_str, func_str = source.split(':')
+                if domain_str.endswith('.py'):
+                    # e.g. "crawl.py:main"
+                    return PythonScriptCallableTarget
+                else:
+                    # e.g. "crawl.prices:main"
+                    return PythonModuleCallableTarget
+            elif source.endswith('.py'):
+                # e.g. "crawl.py"
+                return PythonScriptTarget
+            elif not source.startswith('.') and '.' in source:
+                # e.g. "crawl.prices"
+                return PythonModuleTarget
+        return CommandTarget
+    else:
+        raise ValueError(f'invalid target: source="{source}" opts={opts}')

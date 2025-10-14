@@ -15,7 +15,7 @@ from fans.bunch import bunch
 from fans.logger import get_logger
 
 from .sched import Sched
-from .target import Target, TargetType
+from .target import Target
 from . import util
 from .job import Job
 from .run import Run
