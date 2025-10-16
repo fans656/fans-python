@@ -11,19 +11,17 @@ from typing import Union, Callable, List, Iterable, Optional
 
 import yaml
 from fans.bunch import bunch
-from fans.logger import get_logger
+from fans.logger import get_logger, Logger
 
-from .sched import Sched
-from .target import Target
-from . import util
-from .job import Job
-from .run import Run
+from fans.jober.sched import Sched
+from fans.jober.target import Target
+from fans.jober.job import Job
+from fans.jober.run import Run
+from fans.jober.event import RunEventer
+from fans.jober import util
 
 
 logger = get_logger(__name__)
-
-
-DEFAULT_MODE = 'thread'
 
 
 class Jober:
@@ -53,18 +51,21 @@ class Jober:
         self.started = False
 
         self._id_to_job = {}
-        self._events_queue = queue.Queue()
 
+        # for output capture
+        self._events_queue = queue.Queue()
+        self._events_thread = threading.Thread(target=self._collect_events, daemon=True)
+
+        # for job schedule
         self._sched = Sched(
             n_threads=self.conf.n_thread_pool_workers,
             thread_pool_kwargs={
-                'initializer': _init_pool,
+                'initializer': _init_pool_thread,
                 'initargs': (self._events_queue,),
             },
             timezone=self.conf.timezone,
         )
 
-        self._thread_events_thread = threading.Thread(target=self._collect_events, daemon=True)
         self._listeners = set()
         
         self._load_jobs_from_conf()
@@ -78,6 +79,19 @@ class Jober:
                 time.sleep(0.01)
         except KeyboardInterrupt:
             pass
+
+    def start(self):
+        if not self.started:
+            self._sched.start()
+            self._events_thread.start()
+            util.enable_proxy()
+            self.started = True
+
+    def stop(self):
+        if self.started:
+            self._sched.stop()
+            util.disable_proxy()
+            self.started = False
     
     @property
     def info(self) -> dict:
@@ -206,19 +220,6 @@ class Jober:
         )
         return job
 
-    def start(self):
-        if not self.started:
-            self._sched.start()
-            self._thread_events_thread.start()
-            util.enable_proxy()
-            self.started = True
-
-    def stop(self):
-        if self.started:
-            self._sched.stop()
-            util.disable_proxy()
-            self.started = False
-
     def get_job(self, job_id: str) -> 'Job':
         """
         Get job by ID.
@@ -289,19 +290,15 @@ class Jober:
             event = queue.get()
             job_id = event['job_id']
             job = self._id_to_job.get(job_id)
-            if not job:
-                logger.warning(
-                    f'got job event for job with id "{job_id}" '
-                    f'but the job is not known'
-                )
-                continue
-            job._on_run_event(event)
+            if job:
+                job._on_run_event(event)
 
-            for listener in self._listeners:
-                try:
-                    listener(event)
-                except:
-                    traceback.print_exc()
+                # TODO: listener execution in dedicated thread?
+                for listener in self._listeners:
+                    try:
+                        listener(event)
+                    except:
+                        traceback.print_exc()
 
     def _prepare_run(self, job, args=(), kwargs={}, **__):
         if self.conf.capture:
@@ -362,18 +359,25 @@ def _normalized_job_spec(spec: dict):
     }
 
 
-def _init_pool(queue: queue.Queue):
+def _init_pool_thread(queue: queue.Queue):
     global _events_queue
     _events_queue = queue
 
 
 def _prepare_thread_run(thread_out_queue, job_id, run_id, module_logging_levels={}):
-    util.redirect(
-        queue = thread_out_queue,
-        job_id = job_id,
-        run_id = run_id,
-        module_logging_levels = module_logging_levels,
-    )
+    Logger.reset_handlers(module_levels=module_logging_levels)
+    output = _Output(RunEventer(job_id=job_id, run_id=run_id, queue=thread_out_queue))
+    util.redirect_to(output)
+
+
+class _Output:
+    
+    def __init__(self, run_eventer):
+        self.run_eventer = run_eventer
+
+    def write(self, string):
+        if self.run_eventer:
+            self.run_eventer.output(string)
 
 
 _events_queue = None

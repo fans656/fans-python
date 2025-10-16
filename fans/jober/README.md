@@ -77,6 +77,35 @@ Or choose a function in the module:
 
     jober.run_job('./samples/echo.py:say')
 
+Schedule
+================================================================================
+
+There are multiple types of schedule supported:
+- single shot
+- interval
+- cron
+- keep alive
+
+## Single shot
+
+Run executable now and only once:
+
+    jober.run_job('ls')
+
+## Interval
+
+Run every `<interval>` seconds:
+
+    jober.run_job('date', when=0.5)  # run every 500ms
+
+## Cron
+
+    jober.run_job('date', when='0 22 * * *')  # run at 10:00 PM everyday
+
+## Keep Alive
+
+...todo
+
 Execution environment
 ================================================================================
 
@@ -106,34 +135,8 @@ You can set current working directory of the job if it's run in process:
 
     jober.run_job('ls', cwd='/tmp')
 
-Schedule
+Output capture
 ================================================================================
-
-There are multiple types of schedule supported:
-- single shot
-- interval
-- cron
-- keep alive
-
-## Single shot
-
-Run executable now and only once:
-
-    jober.run_job('ls')
-
-## Interval
-
-Run every `<interval>` seconds:
-
-    jober.run_job('date', when=0.5)  # run every 500ms
-
-## Cron
-
-    jober.run_job('date', when='0 22 * * *')  # run at 10:00 PM everyday
-
-## Keep Alive
-
-...todo
 
 TODO
 ================================================================================

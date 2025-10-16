@@ -5,7 +5,7 @@ import pytest
 from fans.path import Path
 from fans.bunch import bunch
 
-from fans.jober.jober import Jober, DEFAULT_MODE
+from fans.jober.jober import Jober
 from fans.jober.tests.conftest import parametrized
 
 
