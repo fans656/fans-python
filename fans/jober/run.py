@@ -29,6 +29,7 @@ class Run:
         self.status = 'init'
         self.trace = None
         self._outputs = []
+        self.result = None
 
         self.ctime = time.time()
 
@@ -46,9 +47,9 @@ class Run:
             ret = self.target()
 
             if inspect.isgenerator(ret):
-                # ensure a generator function is iterated
-                for _ in ret:
-                    pass
+                self.result = list(ret)
+            else:
+                self.result = ret
             
             eventer.done()
 

@@ -17,3 +17,14 @@ def test_max_recent_runs():
     time.sleep(0.2)
     jober.stop()
     assert len(job.runs) == 2
+
+
+def test_generator_func(jober):
+
+    def func():
+        for i in range(5):
+            yield i + 1
+
+    job = jober.run_job(func)
+    job.wait()
+    assert job.last_run.result == [1, 2, 3, 4, 5]
