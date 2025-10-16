@@ -118,7 +118,8 @@ def test_cwd(jober, tmp_path):
     assert job.output.strip() == str(tmp_path)
 
 
-def test_interval(jober):
+def test_interval():
+    jober = Jober(max_recent_runs=100)
     job = jober.add_job('date', when=0.02)
     time.sleep(0.2)
     jober.stop()

@@ -2,6 +2,7 @@ import uuid
 import time
 import queue
 import asyncio
+from collections import deque
 from typing import Iterable, Optional
 
 from fans.logger import get_logger
@@ -25,6 +26,7 @@ class Job:
             name: str = None,
             extra: any = None,
             max_instances: int = 1,
+            max_recent_runs: int = 3,
     ):
         self.target = target
         self.id = id or uuid.uuid4().hex
@@ -33,8 +35,10 @@ class Job:
         self.extra = extra
         
         self.max_instances = max_instances
+        self.max_recent_runs = max_recent_runs
 
         self._id_to_run = {}
+        self._recent_runs = deque([])
         self._last_run_id = None
         self._max_run_time = 0
     
@@ -101,7 +105,12 @@ class Job:
             args=args,
             kwargs=kwargs,
         )
+
         self._id_to_run[run_id] = run
+        self._recent_runs.append(run)
+
+        self._clear_obsolete_runs()
+
         return run
     
     def wait(self, interval=0.01):
@@ -126,3 +135,8 @@ class Job:
             'max_instances': self.max_instances,
         }
         return ret
+    
+    def _clear_obsolete_runs(self):
+        while len(self._recent_runs) > self.max_recent_runs:
+            run = self._recent_runs.popleft()
+            del self._id_to_run[run.run_id]

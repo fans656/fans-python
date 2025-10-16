@@ -31,6 +31,7 @@ class Jober:
         'capture': 'memory',
         'n_thread_pool_workers': 32,
         'timezone': 'Asia/Shanghai',
+        'max_recent_runs': 3,
         'jobs': [],
     }
 
@@ -211,6 +212,9 @@ class Jober:
             cwd=cwd,
             process=process,
         )
+
+        job_kwargs.setdefault('max_recent_runs', self.conf.max_recent_runs)
+
         job = Job(
             target,
             id=id,
