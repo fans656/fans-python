@@ -301,17 +301,17 @@ class Jober:
                         traceback.print_exc()
 
     def _prepare_run(self, job, args=(), kwargs={}, **__):
-        if self.conf.capture:
-            before_run = lambda: _prepare_thread_run(
-                self._events_queue, run.job_id, run.run_id,
-                module_logging_levels=self._sched.module_logging_levels,
-            )
-        else:
-            before_run = lambda: None
-
-        run = job.new_run(args, kwargs)
-
         def _run():
+            run = job.new_run(args, kwargs)
+
+            if self.conf.capture:
+                before_run = lambda: _prepare_thread_run(
+                    self._events_queue, run.job_id, run.run_id,
+                    module_logging_levels=self._sched.module_logging_levels,
+                )
+            else:
+                before_run = lambda: None
+
             return run(events_queue=_events_queue, before_run=before_run)
 
         return _run

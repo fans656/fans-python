@@ -74,21 +74,22 @@ class Test_remove:
         assert jober.get_job(job.id) is None
 
     def test_not_removable_when_running(self, jober):
-        run = jober.run_job('sleep 0.1')
-        assert not jober.remove_job(run.job_id)
-        run.wait()
-        assert jober.remove_job(run.job_id)
-        assert not jober.get_job(run.job_id)
+        job = jober.run_job('sleep 0.1')
+        time.sleep(0.01)
+        assert not jober.remove_job(job.job_id)
+        job.wait()
+        assert jober.remove_job(job.job_id)
+        assert not jober.get_job(job.job_id)
 
 
 class Test_run_status:
 
     def test_done(self, jober, mocker):
-        run = jober.run_job(mocker.Mock())
-        run.wait()
-        assert run.status == 'done'
+        job = jober.run_job(mocker.Mock())
+        job.wait()
+        assert job.status == 'done'
 
     def test_error(self, jober, mocker):
-        run = jober.run_job(mocker.Mock(side_effect=Exception()))
-        run.wait()
-        assert run.status == 'error'
+        job = jober.run_job(mocker.Mock(side_effect=Exception()))
+        job.wait()
+        assert job.status == 'error'
