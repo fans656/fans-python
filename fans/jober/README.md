@@ -138,6 +138,11 @@ You can set current working directory of the job if it's run in process:
 Output capture
 ================================================================================
 
+- job run in a thread pool managed by apscheduler
+- stdout/stderr is redirected to thread local custom handler
+- the custom handler turn output into event
+- events are collected in jober managed collector thread
+
 TODO
 ================================================================================
 
