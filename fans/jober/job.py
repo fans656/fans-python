@@ -7,7 +7,7 @@ from typing import Iterable, Optional
 
 from fans.logger import get_logger
 
-from .run import Run, dummy_run
+from .run import Run, DummyRun, dummy_run
 
 
 logger = get_logger(__name__)
@@ -27,6 +27,7 @@ class Job:
             extra: any = None,
             max_instances: int = 1,
             max_recent_runs: int = 3,
+            disabled: bool = False,
     ):
         self.target = target
         self.id = id or uuid.uuid4().hex
@@ -34,6 +35,7 @@ class Job:
         self.name = name
         self.extra = extra
         
+        self.disabled = disabled
         self.max_instances = max_instances
         self.max_recent_runs = max_recent_runs
 
@@ -45,6 +47,12 @@ class Job:
     def __call__(self, *args, **kwargs):
         run = self.new_run()
         return run(*args, **kwargs)
+    
+    def disable(self):
+        self.disabled = True
+    
+    def enable(self):
+        self.disabled = False
     
     def as_dict(self):
         return {
@@ -97,6 +105,9 @@ class Job:
         return self._id_to_run.get(run_id)
 
     def new_run(self, args, kwargs):
+        if self.disabled:
+            return DummyRun(job_id=self.id)
+
         run_id = uuid.uuid4().hex
         run = Run(
             target=self.target,

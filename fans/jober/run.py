@@ -122,8 +122,9 @@ class Run:
 
 class DummyRun(Run):
 
-    def __init__(self):
-        super().__init__(target=Target.make(lambda *_, **__: None), job_id='dummy', run_id='dummy')
+    def __init__(self, job_id='dummy', run_id='dummy'):
+        target = Target.make(noop)
+        super().__init__(target=target, job_id=job_id, run_id=run_id)
 
     def __bool__(self):
         return False

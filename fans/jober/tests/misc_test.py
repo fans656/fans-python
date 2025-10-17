@@ -28,3 +28,17 @@ def test_generator_func(jober):
     job = jober.run_job(func)
     job.wait()
     assert job.last_run.result == [1, 2, 3, 4, 5]
+
+
+def test_disable(jober):
+    job = jober.add_job('date', when=0.01, max_recent_runs=999)
+    time.sleep(0.03)
+
+    job.disable()
+    time.sleep(0.03)
+
+    job.enable()
+    time.sleep(0.03)
+
+    jober.stop()
+    assert len(job.runs) == 6
