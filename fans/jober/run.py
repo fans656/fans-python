@@ -10,6 +10,7 @@ from fans.fn import noop
 
 from fans.jober.event import EventType, RunEventer
 from fans.jober.target import Target
+from fans.jober import util
 
 
 logger = get_logger(__name__)
@@ -32,20 +33,23 @@ class Run:
         self.trace = None
         self.result = None
 
+        self.get_events_queue = noop
+        self.capture = None
+
+        self._before_run = noop
         self._outputs = []
     
-    def __call__(self, *, events_queue, before_run=noop):
-        eventer = RunEventer(job_id=self.job_id, run_id=self.run_id, queue=events_queue)
+    def __call__(self):
+        eventer = RunEventer(job_id=self.job_id, run_id=self.run_id, queue=self.get_events_queue())
         try:
             eventer.begin()
 
-            # before run
-            before_run()
+            if self.capture:
+                output = _Output(eventer)
+                util.redirect_to(output)
 
-            # run
             ret = self.target()
 
-            # after run
             if inspect.isgenerator(ret):
                 self.result = list(ret)
             else:
@@ -93,6 +97,16 @@ class DummyRun(Run):
 
     def __bool__(self):
         return False
+
+
+class _Output:
+    
+    def __init__(self, run_eventer):
+        self.run_eventer = run_eventer
+
+    def write(self, string):
+        if self.run_eventer:
+            self.run_eventer.output(string)
 
 
 dummy_run = DummyRun()

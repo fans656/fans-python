@@ -18,7 +18,6 @@ from fans.jober.sched import Sched
 from fans.jober.target import Target
 from fans.jober.job import Job
 from fans.jober.run import Run
-from fans.jober.event import RunEventer
 from fans.jober import util
 
 
@@ -307,12 +306,10 @@ class Jober:
         def _run():
             run = job.new_run(args, kwargs)
 
-            if self.conf.capture:
-                before_run = lambda: _prepare_thread_run(self._events_queue, run.job_id, run.run_id)
-            else:
-                before_run = lambda: None
+            run.get_events_queue = lambda: self._events_queue
+            run.capture = self.conf.capture
 
-            return run(events_queue=_events_queue, before_run=before_run)
+            return run()
 
         return _run
     
@@ -363,27 +360,6 @@ def _init_pool_thread(queue: queue.Queue):
     global _events_queue
     _events_queue = queue
     Logger.reset_handlers(module_levels={'apscheduler': logging.WARNING})
-
-
-def _prepare_thread_run(thread_out_queue, job_id, run_id):
-    run_eventer = RunEventer(
-        job_id=job_id,
-        run_id=run_id,
-        queue=thread_out_queue,
-    )
-
-    output = _Output(run_eventer)
-    util.redirect_to(output)
-
-
-class _Output:
-    
-    def __init__(self, run_eventer):
-        self.run_eventer = run_eventer
-
-    def write(self, string):
-        if self.run_eventer:
-            self.run_eventer.output(string)
 
 
 _events_queue = None
