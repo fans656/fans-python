@@ -42,3 +42,14 @@ def test_disable(jober):
 
     jober.stop()
     assert abs(len(job.runs) - 6) < 2
+
+
+def test_run_existing_job_with_modified_args(jober):
+    job = jober.run_job('fans.jober.tests.samples.echo', args=('hello',))
+    job.wait()
+    assert job.output == 'hello\n'
+
+    jober.run_job(job, args=('foo',), kwargs={'count': 3})
+    time.sleep(0.01)
+    job.wait()
+    assert job.output == 'foo\nfoo\nfoo\n'

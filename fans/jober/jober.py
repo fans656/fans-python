@@ -118,10 +118,13 @@ class Jober:
         """
         if isinstance(args[0], Job):
             job = args[0]
+            args = args[1:]
         else:
             job = self.add_job(*args, **kwargs)
+            args = ()
+            kwargs = {}
 
-        self._sched.run_singleshot(self._prepare_run(job, **kwargs), **job._apscheduler_kwargs)
+        self._sched.run_singleshot(self._prepare_run(job, *args, **kwargs), **job._apscheduler_kwargs)
 
         return job
 
