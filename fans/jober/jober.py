@@ -53,11 +53,9 @@ class Jober:
 
         self._id_to_job = {}
 
-        # for output capture
         self._events_queue = queue.Queue()
         self._events_thread = threading.Thread(target=self._collect_events, daemon=True)
 
-        # for job schedule
         self._sched = Sched(
             n_threads=self.conf.n_thread_pool_workers,
             thread_pool_kwargs={

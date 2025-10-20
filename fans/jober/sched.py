@@ -9,15 +9,12 @@ from apscheduler.triggers.cron import CronTrigger
 
 class Sched:
 
-    module_logging_levels = {'apscheduler': logging.WARNING}
-
     def __init__(
             self,
             *,
             n_threads: int,
             thread_pool_kwargs = {},
             timezone = 'Asia/Shanghai',
-            **_,
     ):
         self._timezone = pytz.timezone(timezone)
         self._sched = BackgroundScheduler(
