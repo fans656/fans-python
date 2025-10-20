@@ -74,10 +74,6 @@ class Job:
         return self.last_run.output
 
     @property
-    def output_lines(self) -> str:
-        return self.last_run.output_lines
-
-    @property
     def runs(self) -> Iterable['Run']:
         return self._id_to_run.values()
 

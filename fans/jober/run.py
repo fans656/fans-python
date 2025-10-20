@@ -26,26 +26,26 @@ class Run:
         self.run_id = run_id
         self.args = args
         self.kwargs = kwargs
+
         self.status = 'init'
+        self.ctime = time.time()
         self.trace = None
-        self._outputs = []
         self.result = None
 
-        self.ctime = time.time()
-
-        # TODO: limit output size
-        # NOTE: this does not support multiple clients
-        self._events_queue = queue.Queue()
+        self._outputs = []
     
     def __call__(self, *, events_queue, before_run=noop):
         eventer = RunEventer(job_id=self.job_id, run_id=self.run_id, queue=events_queue)
         try:
             eventer.begin()
 
+            # before run
             before_run()
 
+            # run
             ret = self.target()
 
+            # after run
             if inspect.isgenerator(ret):
                 self.result = list(ret)
             else:
@@ -63,46 +63,12 @@ class Run:
         return ''.join(self._outputs)
 
     @property
-    def output_lines(self) -> list[str]:
-        # TODO: find newline upon append instead of here
-        return self.output.rstrip('\n').split('\n')
-
-    @property
     def finished(self):
-        return self.status in finished_statuses
+        return self.status in FINISHED_STATUSES
     
     def wait(self, interval=0.01):
-        while self.status in ('init', 'running'):
+        while self.status in RUNNING_STATUSES:
             time.sleep(interval)
-
-    async def iter_events_async(self, should_stop: Optional[Callable[[], bool]] = None):
-        content_event = None
-        content = ''
-        async for event in self._iter_events_async(should_stop):
-            if event['type'] == EventType.job_run_output:
-                content += event['content']
-                content_event = event
-                if content.endswith('\n'):
-                    yield {**content_event, 'content': content}
-                    content = ''
-                    content_event = None
-            else:
-                if content and event['type'] in finished_event_types:
-                    yield {**content_event, 'content': content}
-                yield event
-
-    async def _iter_events_async(self, should_stop: Optional[Callable[[], bool]] = None):
-        while True:
-            try:
-                event = self._events_queue.get(False)
-            except queue.Empty:
-                if should_stop and await should_stop():
-                    break
-                await asyncio.sleep(0.001)
-            else:
-                yield event
-                if event['type'] in finished_event_types:
-                    break
 
     def _on_run_event(self, event):
         match event['type']:
@@ -117,7 +83,6 @@ class Run:
                 self._outputs.append(event['content'])
             case _:
                 logger.warning(f'invalid event: {event}')
-        self._events_queue.put(event)
 
 
 class DummyRun(Run):
@@ -131,5 +96,6 @@ class DummyRun(Run):
 
 
 dummy_run = DummyRun()
-finished_statuses = {'done', 'error'}
-finished_event_types = {EventType.job_run_done, EventType.job_run_error}
+
+RUNNING_STATUSES = {'init', 'running'}
+FINISHED_STATUSES = {'done', 'error'}

@@ -1,6 +1,7 @@
 import time
 import uuid
 import queue
+import logging
 import traceback
 import threading
 import functools
@@ -307,12 +308,7 @@ class Jober:
             run = job.new_run(args, kwargs)
 
             if self.conf.capture:
-                before_run = lambda: _prepare_thread_run(
-                    self._events_queue,
-                    run.job_id,
-                    run.run_id,
-                    module_logging_levels=self._sched.module_logging_levels,
-                )
+                before_run = lambda: _prepare_thread_run(self._events_queue, run.job_id, run.run_id)
             else:
                 before_run = lambda: None
 
@@ -366,11 +362,10 @@ def _normalized_job_spec(spec: dict):
 def _init_pool_thread(queue: queue.Queue):
     global _events_queue
     _events_queue = queue
+    Logger.reset_handlers(module_levels={'apscheduler': logging.WARNING})
 
 
-def _prepare_thread_run(thread_out_queue, job_id, run_id, module_logging_levels={}):
-    Logger.reset_handlers(module_levels=module_logging_levels)
-
+def _prepare_thread_run(thread_out_queue, job_id, run_id):
     run_eventer = RunEventer(
         job_id=job_id,
         run_id=run_id,
