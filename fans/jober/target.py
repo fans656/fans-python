@@ -10,6 +10,8 @@ import importlib.util
 from pathlib import Path
 from typing import Union, Callable, List, Iterable
 
+from fans.bunch import bunch
+
 
 class Target:
     """
@@ -69,6 +71,11 @@ class Target:
     
     def bind(self, args, kwargs):
         return Target.make(self.source, args, kwargs, **self.opts)
+    
+    @property
+    def cwd(self):
+        cwd = self.opts.get('cwd')
+        return (Path(cwd if cwd else os.getcwd())).expanduser()
 
     def _prepare_call(self):
         pass
@@ -76,31 +83,21 @@ class Target:
     def _do_call(self):
         raise NotImplementedError()
     
-    @property
-    def cwd(self) -> Path:
-        return Path(self.opts.get('cwd') or os.getcwd())
-    
     def _popen(self, cmd: str|list[str]):
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(self.cwd),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, # redirect to stdout
-            text=True,
-            encoding=self.opts.get('encoding', 'utf-8'),
-            bufsize=1,  # line buffered
-            errors='replace',
-            shell=self.opts.get('shell', False),
-        )
-        try:
-            for line in iter(proc.stdout.readline, ''):
-                print(line, end='')
-        except KeyboardInterrupt:
-            pass
-        finally:
-            proc.wait()
+        proc_bunch = _make_proc(cmd, **self.opts)
+
+        if not proc_bunch.should_close:
+            _reprint_proc_stdout(proc_bunch.proc)
+
+        proc_bunch.proc.wait()
         
-        return proc.returncode
+        if proc_bunch.should_close:
+            if proc_bunch.stdout:
+                proc_bunch.stdout.close()
+            if proc_bunch.stderr:
+                proc_bunch.stderr.close()
+        
+        return proc_bunch.proc.returncode
 
 
 class CommandTarget(Target):
@@ -275,3 +272,56 @@ def _get_impl_cls(source: str, **opts):
         return CommandTarget
     else:
         raise ValueError(f'invalid target: source="{source}" opts={opts}')
+    
+
+def _reprint_proc_stdout(proc):
+    try:
+        for line in iter(proc.stdout.readline, ''):
+            print(line, end='')
+    except KeyboardInterrupt:
+        pass
+
+
+def _make_proc(
+    cmd,
+    cwd=None,
+    encoding='utf-8',
+    shell=False,
+    text=True,
+    bufsize=1,  # line buffered
+    errors='replace',
+    stdout=None,
+    stderr=None,
+    **opts,
+):
+    ret = bunch()
+
+    if stdout is None:
+        stdout = subprocess.PIPE
+    else:
+        stdout = Path(stdout).expanduser().open('w', encoding=encoding)
+        ret.stdout = stdout
+        ret.should_close = True
+
+    if stderr is None:
+        stderr = subprocess.STDOUT
+    else:
+        stderr = Path(stderr).expanduser().open('w', encoding=encoding)
+        ret.stderr = stderr
+        ret.should_close = True
+    
+    cwd = str(Path(cwd)) if cwd else os.getcwd()
+
+    ret.proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=stdout,
+        stderr=stderr,
+        text=text,
+        encoding=encoding,
+        bufsize=bufsize,
+        errors=errors,
+        shell=shell,
+    )
+    
+    return ret

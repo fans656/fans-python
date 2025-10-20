@@ -189,6 +189,8 @@ class Jober:
             cwd: str = None,
             shell: bool = False,
             process: bool = False,
+            stdout=None,
+            stderr=None,
             **job_kwargs,
     ) -> 'Job':
         """
@@ -205,6 +207,8 @@ class Jober:
             shell=shell,
             cwd=cwd,
             process=process,
+            stdout=stdout,
+            stderr=stderr,
         )
 
         job_kwargs.setdefault('max_recent_runs', self.conf.max_recent_runs)
@@ -304,7 +308,9 @@ class Jober:
 
             if self.conf.capture:
                 before_run = lambda: _prepare_thread_run(
-                    self._events_queue, run.job_id, run.run_id,
+                    self._events_queue,
+                    run.job_id,
+                    run.run_id,
                     module_logging_levels=self._sched.module_logging_levels,
                 )
             else:
@@ -364,7 +370,14 @@ def _init_pool_thread(queue: queue.Queue):
 
 def _prepare_thread_run(thread_out_queue, job_id, run_id, module_logging_levels={}):
     Logger.reset_handlers(module_levels=module_logging_levels)
-    output = _Output(RunEventer(job_id=job_id, run_id=run_id, queue=thread_out_queue))
+
+    run_eventer = RunEventer(
+        job_id=job_id,
+        run_id=run_id,
+        queue=thread_out_queue,
+    )
+
+    output = _Output(run_eventer)
     util.redirect_to(output)
 
 

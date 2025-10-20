@@ -31,14 +31,14 @@ def test_generator_func(jober):
 
 
 def test_disable(jober):
-    job = jober.add_job('date', when=0.01, max_recent_runs=999)
-    time.sleep(0.03)
+    job = jober.add_job('date', when=0.1, max_recent_runs=999)
+    time.sleep(0.3)
 
     job.disable()
-    time.sleep(0.03)
+    time.sleep(0.3)
 
     job.enable()
-    time.sleep(0.03)
+    time.sleep(0.3)
 
     jober.stop()
     assert len(job.runs) == 6
