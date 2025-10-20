@@ -38,15 +38,18 @@ class Job:
         self.disabled = disabled
         self.max_instances = max_instances
         self.max_recent_runs = max_recent_runs
+        
+        self.get_events_queue = None
+        self.capture = None
 
         self._id_to_run = {}
         self._recent_runs = deque([])
         self._last_run_id = None
         self._max_run_time = 0
     
-    def __call__(self, *args, **kwargs):
-        run = self.new_run()
-        return run(*args, **kwargs)
+    def __call__(self, args=(), kwargs={}):
+        run = self.new_run(args=args, kwargs=kwargs)
+        return run()
     
     def disable(self):
         self.disabled = True
@@ -112,6 +115,8 @@ class Job:
             args=args,
             kwargs=kwargs,
         )
+        run.get_events_queue = self.get_events_queue
+        run.capture = self.capture
 
         self._id_to_run[run_id] = run
         self._recent_runs.append(run)

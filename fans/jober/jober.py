@@ -118,13 +118,14 @@ class Jober:
         """
         if isinstance(args[0], Job):
             job = args[0]
-            args = args[1:]
+            run_args = args[1:]
+            run_kwargs = kwargs
         else:
             job = self.add_job(*args, **kwargs)
-            args = ()
-            kwargs = {}
+            run_args = ()
+            run_kwargs = {}
 
-        self._sched.run_singleshot(self._prepare_run(job, *args, **kwargs), **job._apscheduler_kwargs)
+        self._sched.run_singleshot(job, run_args, run_kwargs, **job._apscheduler_kwargs)
 
         return job
 
@@ -149,9 +150,9 @@ class Jober:
     
     def _schedule_job(self, job, when):
         if isinstance(when, (int, float)):
-            self._sched.run_interval(self._prepare_run(job), when, **job._apscheduler_kwargs)
+            self._sched.run_interval(job, when, **job._apscheduler_kwargs)
         elif isinstance(when, str):
-            self._sched.run_cron(self._prepare_run(job), when, **job._apscheduler_kwargs)
+            self._sched.run_cron(job, when, **job._apscheduler_kwargs)
         else:
             raise NotImplementedError(f'unsupported when: {when}')
     
@@ -223,6 +224,8 @@ class Jober:
             extra=extra,
             **job_kwargs,
         )
+        job.get_events_queue = lambda: self._events_queue
+        job.capture = self.conf.capture
         return job
 
     def get_job(self, job_id: str) -> 'Job':
@@ -304,17 +307,6 @@ class Jober:
                         listener(event)
                     except:
                         traceback.print_exc()
-
-    def _prepare_run(self, job, args=(), kwargs={}, **__):
-        def _run():
-            run = job.new_run(args, kwargs)
-
-            run.get_events_queue = lambda: self._events_queue
-            run.capture = self.conf.capture
-
-            return run()
-
-        return _run
     
     def _load_jobs_from_conf(self):
         for spec in self.conf.get('jobs', []):
