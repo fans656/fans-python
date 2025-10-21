@@ -47,7 +47,7 @@ class Job:
         self._last_run_id = None
         self._max_run_time = 0
     
-    def __call__(self, args=(), kwargs={}):
+    def __call__(self, args=None, kwargs=None):
         run = self.new_run(args=args, kwargs=kwargs)
         return run()
     
@@ -103,7 +103,7 @@ class Job:
     def get_run(self, run_id: str) -> Optional[Run]:
         return self._id_to_run.get(run_id)
 
-    def new_run(self, args, kwargs):
+    def new_run(self, args=None, kwargs=None):
         if self.disabled:
             return DummyRun(job_id=self.id)
 

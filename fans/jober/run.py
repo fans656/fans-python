@@ -18,11 +18,12 @@ logger = get_logger(__name__)
 
 class Run:
 
-    def __init__(self, *, target, job_id, run_id, args=(), kwargs={}):
-        if args or kwargs:
-            self.target = target.bind(args, kwargs)
+    def __init__(self, *, target, job_id, run_id, args=None, kwargs=None):
+        if args is not None or kwargs is not None:
+            self.target = target.clone(args=args, kwargs=kwargs)
         else:
             self.target = target
+
         self.job_id = job_id
         self.run_id = run_id
         self.args = args

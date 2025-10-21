@@ -15,19 +15,24 @@ from fans.bunch import bunch
 
 class Target:
     """
-    Wrapper around different type of executable.
+    Wraps executable of different types (command, callable, etc).
     
     Target can be called:
     
         target = Target.make('date')
         target()
     
-    can bind args:
+    can specify args:
+
+        target = Target.make('ls', args=['-l'])
+        target()
+
+    can clone with modified args:
     
         target = Target.make('ls')
-        bound_target = target.bind('-lh')
+        bound_target = target.clone(args=['-lh'])
         bound_target()
-    
+
     can specify execution options:
     
         target = Target.make(func, process=True, encoding='gbk')
@@ -55,27 +60,40 @@ class Target:
         python_module_callable = 'python_module_callable'
 
     @staticmethod
-    def make(source: Union[Callable, str, List[str]], args = (), kwargs  = {}, **opts):
-        impl_cls = _get_impl_cls(source, **opts)
-        return impl_cls(source, args, kwargs, opts=opts)
+    def make(source, args=(), kwargs={}, **options):
+        impl_cls = _get_impl_cls(source, **options)
+        return impl_cls(source, args=args, kwargs=kwargs, **options)
 
-    def __init__(self, source, args, kwargs, opts):
+    def __init__(self, source, args=(), kwargs={}, **options):
+        """
+        Availble options:
+        """
         self.source = source
         self.args = args
         self.kwargs = kwargs
-        self.opts = opts
+        self.options = options
 
     def __call__(self):
         self._prepare_call()
         return self._do_call()
     
-    def bind(self, args, kwargs):
-        return Target.make(self.source, args, kwargs, **self.opts)
+    def clone(self, args=None, kwargs=None, **options):
+        if args is None:
+            args = self.args
+        
+        if kwargs is None:
+            kwargs = self.kwargs
+
+        _options = self.options
+        if options:
+            _options = dict(_options)
+            _options.update(options)
+
+        return Target.make(self.source, args, kwargs, **_options)
     
     @property
     def cwd(self):
-        cwd = self.opts.get('cwd')
-        return (Path(cwd if cwd else os.getcwd())).expanduser()
+        return Path(self.options.get('cwd') or os.getcwd()).expanduser()
 
     def _prepare_call(self):
         pass
@@ -84,7 +102,7 @@ class Target:
         raise NotImplementedError()
     
     def _popen(self, cmd: str|list[str]):
-        proc_bunch = _make_proc(cmd, **self.opts)
+        proc_bunch = _make_proc(cmd, **self.options)
 
         if not proc_bunch.should_close:
             _reprint_proc_stdout(proc_bunch.proc)
@@ -106,7 +124,7 @@ class CommandTarget(Target):
 
     def _do_call(self):
         cmd = self.source
-        if not self.opts.get('shell'):
+        if not self.options.get('shell'):
             if isinstance(cmd, str):
                 cmd = shlex.split(cmd)
             cmd = [*cmd, *self.args, *_to_cmdline_options(self.kwargs)]
@@ -142,7 +160,7 @@ class CallableTarget(Target):
         self.func = None
 
     def _do_call(self):
-        if self.opts.get('process'):
+        if self.options.get('process'):
             return self._execute_func_in_process()
         else:
             return self.func(*self.args, **self.kwargs)
@@ -245,8 +263,8 @@ def _to_cmdline_options(kvs: dict):
     return list(gen())
 
 
-def _get_impl_cls(source: str, **opts):
-    if opts.get('shell') or isinstance(source, list):
+def _get_impl_cls(source: Union[Callable, str, List[str]], **options):
+    if options.get('shell') or isinstance(source, list):
         return CommandTarget
     elif callable(source):
         return PythonCallableTarget
@@ -271,7 +289,7 @@ def _get_impl_cls(source: str, **opts):
                 return PythonModuleTarget
         return CommandTarget
     else:
-        raise ValueError(f'invalid target: source="{source}" opts={opts}')
+        raise ValueError(f'invalid target: source="{source}" options={options}')
     
 
 def _reprint_proc_stdout(proc):
@@ -292,7 +310,7 @@ def _make_proc(
     errors='replace',
     stdout=None,
     stderr=None,
-    **opts,
+    **__,
 ):
     ret = bunch()
 
