@@ -93,22 +93,11 @@ class Jober:
             self.started = False
     
     @property
-    def info(self) -> dict:
-        return {
-            **self.conf,
-        }
-    
-    @property
     def jobs(self) -> Iterable[Job]:
         for job in self._id_to_job.values():
             yield job
-    
-    @property
-    def job_ids(self) -> Iterable[str]:
-        for job in self.jobs:
-            yield job.id
 
-    def run_job(self, *args, **kwargs) -> 'Run':
+    def run_job(self, *args, **kwargs) -> Job:
         """
         Sample usages:
         
@@ -119,6 +108,7 @@ class Jober:
             run_args = args[1:]
             run_kwargs = kwargs
         else:
+            kwargs.setdefault('volatile', True)
             job = self.add_job(*args, **kwargs)
             run_args = ()
             run_kwargs = {}
@@ -146,6 +136,9 @@ class Jober:
 
         return job
     
+    def as_dict(self):
+        return {**self.conf}
+    
     def _schedule_job(self, job, when):
         if isinstance(when, (int, float)):
             self._sched.run_interval(job, when, **job._apscheduler_kwargs)
@@ -159,7 +152,7 @@ class Jober:
     
     def prune_jobs(self) -> list[Job]:
         pruned = []
-        for job_id in list(self.job_ids):
+        for job_id in [d.id for d in self.jobs]:
             job = self.remove_job(job_id)
             if job:
                 pruned.append(job)
@@ -175,9 +168,6 @@ class Jober:
             return None
         del self._id_to_job[job_id]
         return job
-
-    def run_for_a_while(self, seconds: float = 0.001):
-        time.sleep(seconds)
 
     def make_job(
             self,

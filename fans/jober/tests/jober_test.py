@@ -68,7 +68,7 @@ class Test_get_jobs:
 class Test_remove:
 
     def test_remove(self, jober):
-        job = jober.add_job('ls')
+        job = jober.add_job('ls', volatile=True)
         assert jober.get_job(job.id)
         assert jober.remove_job(job.id)
         assert jober.get_job(job.id) is None

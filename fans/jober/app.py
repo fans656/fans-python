@@ -17,35 +17,47 @@ def paginated_response(item_model):
     )
 
 
-@app.get('/jobs', response_model=paginated_response(create_model('Job', **{
+@app.get('/list-jobs', response_model=paginated_response(create_model('Job', **{
     'id': (str, Field()),
     'name': (Optional[str], Field(default=None)),
     'extra': (Optional[Any], Field(default=None)),
 })))
-async def jobs_():
+async def list_jobs_():
     """List existing jobs"""
     data = [job.as_dict() for job in Jober.get_instance().jobs]
-    return {
-        'data': data,
-    }
+    return {'data': data}
 
 
-@app.get('/job')
-async def job_(
-        job_id: str = None,
-        run_id: str = None,
-):
+@app.get('/list-runs')
+async def list_runs_(job_id: str):
+    """List runs of given job"""
+    job = _get_job(job_id)
+    data = [run.as_dict() for run in job.runs]
+    return {'data': data}
+
+
+@app.get('/get-job')
+async def get_job(job_id: str):
     """Get job info"""
-    jober = Jober.get_instance()
-    if run_id:
-        pass
-    elif job_id:
-        job = jober.get_job(job_id)
-        if not job:
-            raise HTTPException(404, f'no job with id {job_id}')
-        return job.as_dict()
-    else:
-        return jober.info
+    return _get_job(job_id).as_dict()
+
+
+@app.get('/get-run')
+async def get_run(run_id: str):
+    """Get run info"""
+    pass
+
+
+@app.get('/get-jober')
+async def get_jober_():
+    """Get jober info"""
+    return Jober.get_instance().as_dict()
+
+
+@app.get('/logs')
+async def logs_(request: Request):
+    """Subscribe to run logs"""
+    pass
 
 
 @app.get('/events')
@@ -59,20 +71,13 @@ async def events_(request: Request):
     return EventSourceResponse(gen())
 
 
-@app.get('/info')
-async def info_():
-    """Get jober info"""
-    jober = Jober.get_instance()
-    return jober.info
-
-
 class RunJobRequest(BaseModel):
     
     job_id: str = Field()
 
 
-@app.post('/run')
-async def run_(req: RunJobRequest):
+@app.post('/run-job')
+async def run_job_(req: RunJobRequest):
     """Run a job"""
     jober = Jober.get_instance()
     job = jober.get_job(req.job_id)
@@ -84,18 +89,25 @@ class StopJobRequest(BaseModel):
     job_id: str = Field()
 
 
-@app.post('/stop')
-async def stop_(req: StopJobRequest):
+@app.post('/stop-job')
+async def stop_job_(req: StopJobRequest):
     """Stop a job"""
     jober = Jober.get_instance()
     job = jober.get_job(req.job_id)
     # TODO
 
 
-@app.post('/prune')
-async def prune_():
+@app.post('/prune-jobs')
+async def prune_jobs_():
     """Prune volatile jobs"""
     return [job.as_dict() for job in Jober.get_instance().prune_jobs()]
+
+
+def _get_job(job_id: str):
+    job = Jober.get_instance().get_job(job_id)
+    if not job:
+        raise HTTPException(404, f'no job with id {job_id}')
+    return job
 
 
 root_app = FastAPI(title='fans.jober')

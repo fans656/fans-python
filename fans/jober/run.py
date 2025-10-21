@@ -30,7 +30,8 @@ class Run:
         self.kwargs = kwargs
 
         self.status = 'init'
-        self.ctime = time.time()
+        self.beg_time = None
+        self.end_time = None
         self.trace = None
         self.result = None
 
@@ -44,6 +45,7 @@ class Run:
         eventer = RunEventer(job_id=self.job_id, run_id=self.run_id, queue=self.get_events_queue())
         try:
             eventer.begin()
+            self.beg_time = time.time()
 
             if self.capture:
                 output = _Output(eventer)
@@ -62,6 +64,8 @@ class Run:
         except:
             print(traceback.format_exc()) # output traceback in job run thread
             eventer.error()
+        finally:
+            self.end_time = time.time()
 
     @property
     def output(self) -> str:
@@ -74,6 +78,16 @@ class Run:
     def wait(self, interval=0.01):
         while self.status in RUNNING_STATUSES:
             time.sleep(interval)
+    
+    def as_dict(self):
+        ret = {
+            'job_id': self.job_id,
+            'run_id': self.run_id,
+            'status': self.status,
+            'beg_time': self.beg_time,
+            'end_time': self.end_time,
+        }
+        return ret
 
     def _on_run_event(self, event):
         match event['type']:

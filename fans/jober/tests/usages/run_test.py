@@ -47,7 +47,7 @@ class Test_run:
 
         jober.run_job(mocker.Mock())
         jober.start()
-        jober.run_for_a_while()
+        jober.wait(0.01)
 
         assert events
         event_types = {event['type'] for event in events}

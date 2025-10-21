@@ -1,9 +1,11 @@
+import time
 import contextlib
 
 import yaml
 import pytest
 from starlette.testclient import TestClient
 from fans.bunch import bunch
+from fans.fn import noop
 
 from fans.jober.app import root_app
 from fans.jober.jober import Jober
@@ -30,23 +32,59 @@ def use_instance(conf: bunch = {}):
     Jober._instance = None
 
 
-class Test_jobs:
+class Test_list_jobs:
 
-    def test_empty(self, client):
-        """By default there is no jobs"""
-        assert client.get('/api/jobs').json()['data'] == []
+    def test_empty_jobs_by_default(self, client):
+        assert client.get('/api/list-jobs').json()['data'] == []
     
-    def test_non_empty(self, jober, mocker, client):
-        """Can list existed jobs"""
-        jober.add_job(mocker.Mock())
-        jober.add_job(mocker.Mock())
-        jobs = client.get('/api/jobs').json()['data']
+    def test_list_jobs(self, jober, client):
+        jober.add_job(noop)
+        jober.add_job(noop)
+
+        jobs = client.get('/api/list-jobs').json()['data']
+
         assert len(jobs) == 2
         for job in jobs:
             assert 'id' in job
 
 
-class Test_info:
+class Test_get_job:
+    
+    def test_get_job(self, jober, client):
+        job = jober.add_job(noop)
+
+        data = client.get('/api/get-job', params={
+            'job_id': job.id,
+        }).json()
+
+        assert data['id'] == job.id
+
+
+class Test_list_runs:
+    
+    def test_list_runs(self, jober, client):
+        job = jober.add_job(noop)
+
+        jober.run_job(job)
+        time.sleep(0.01)
+
+        jober.run_job(job)
+        time.sleep(0.01)
+
+        runs = client.get('/api/list-runs', params={
+            'job_id': job.id,
+        }).json()['data']
+
+        assert len(runs) == 2
+        for run in runs:
+            assert 'job_id' in run
+            assert 'run_id' in run
+            assert 'status' in run
+            assert 'beg_time' in run
+            assert 'end_time' in run
+
+
+class Test_get_jober:
 
     def test_jober_info(self, client, tmp_path):
         """Can get general info about jober"""
@@ -55,44 +93,29 @@ class Test_info:
             yaml.dump({}, f)
 
         with use_instance({'conf_path': conf_path}):
-            data = client.get('/api/info').json()
+            data = client.get('/api/get-jober').json()
             
             # can get conf path
             assert data['conf_path'] == str(conf_path)
-    
-    def test_job_info(self, jober, mocker, client):
-        """Can get info about specific job"""
-        job = jober.add_job(mocker.Mock())
-        data = client.get('/api/job', params={'job_id': job.id}).json()
-        assert data['id'] == job.id
-    
-    #def test_run_info(self, jober, mocker, client):
-    #    """Can get info about specific run"""
-    #    job = jober.add_job(mocker.Mock())
-    #    client.post('/api/run', json={'job_id': job.id})
-    #    #job.wait()
-    #    #data = client.get('/api/info', params={'job_id': job.id}).json()
-    #    #assert data['id'] == job.id
 
 
-class Test_prune:
+class Test_prune_jobs:
     
     def test_prune(self, jober, mocker, client):
-        """Can prune jobs not running"""
-        jober.add_job(mocker.Mock())
-        pruned_jobs = client.post('/api/prune').json()
+        jober.run_job(noop)
+        pruned_jobs = client.post('/api/prune-jobs').json()
         assert pruned_jobs
         for job in pruned_jobs:
             assert 'id' in job
 
 
-class Test_run:
+class Test_run_job:
     
-    def test_run(self, jober, mocker, client):
-        """Can manually trigger run of specific job"""
+    def test_simple(self, mocker, jober, client):
         func = mocker.Mock()
         job = jober.add_job(func)
-        client.post('/api/run', json={'job_id': job.id})
-        import time
-        time.sleep(0.1)
+
+        client.post('/api/run-job', json={'job_id': job.id})
+
+        time.sleep(0.01)
         func.assert_called()

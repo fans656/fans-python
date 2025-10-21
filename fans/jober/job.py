@@ -28,6 +28,7 @@ class Job:
             max_instances: int = 1,
             max_recent_runs: int = 3,
             disabled: bool = False,
+            volatile: bool = False,
     ):
         self.target = target
         self.id = id or uuid.uuid4().hex
@@ -35,9 +36,10 @@ class Job:
         self.name = name
         self.extra = extra
         
-        self.disabled = disabled
         self.max_instances = max_instances
         self.max_recent_runs = max_recent_runs
+        self.disabled = disabled
+        self.volatile = volatile
         
         self.get_events_queue = None
         self.capture = None
@@ -82,10 +84,11 @@ class Job:
 
     @property
     def removable(self):
-        if not self.runs:
-            return True
-        if self.finished:
-            return True
+        if self.volatile:
+            if not self.runs:
+                return True
+            if self.finished:
+                return True
         return False
 
     @property
