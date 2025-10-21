@@ -84,11 +84,10 @@ class Job:
 
     @property
     def removable(self):
-        if self.volatile:
-            if not self.runs:
-                return True
-            if self.finished:
-                return True
+        if not self.runs:
+            return True
+        if self.finished:
+            return True
         return False
 
     @property
@@ -125,6 +124,8 @@ class Job:
         self._recent_runs.append(run)
 
         self._clear_obsolete_runs()
+        
+        self._last_run_id = run_id
 
         return run
     

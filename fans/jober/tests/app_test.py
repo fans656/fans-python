@@ -65,11 +65,8 @@ class Test_list_runs:
     def test_list_runs(self, jober, client):
         job = jober.add_job(noop)
 
-        jober.run_job(job)
-        time.sleep(0.01)
-
-        jober.run_job(job)
-        time.sleep(0.01)
+        jober.run_job(job).wait()
+        jober.run_job(job).wait()
 
         runs = client.get('/api/list-runs', params={
             'job_id': job.id,
@@ -86,8 +83,7 @@ class Test_list_runs:
 
 class Test_get_jober:
 
-    def test_jober_info(self, client, tmp_path):
-        """Can get general info about jober"""
+    def test_get_jober(self, client, tmp_path):
         conf_path = tmp_path / 'conf.yaml'
         with conf_path.open('w') as f:
             yaml.dump({}, f)
@@ -102,11 +98,10 @@ class Test_get_jober:
 class Test_prune_jobs:
     
     def test_prune(self, jober, mocker, client):
-        jober.run_job(noop)
+        job = jober.run_job(noop)
         pruned_jobs = client.post('/api/prune-jobs').json()
-        assert pruned_jobs
-        for job in pruned_jobs:
-            assert 'id' in job
+        assert len(pruned_jobs) == 1
+        assert pruned_jobs[0]['id'] == job.id
 
 
 class Test_run_job:

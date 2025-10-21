@@ -68,16 +68,6 @@ class Jober:
         self._listeners = set()
         
         self._load_jobs_from_conf()
-    
-    def wait(self, timeout: float = None):
-        try:
-            beg = time.time()
-            while True:
-                if timeout and time.time() - beg >= timeout:
-                    break
-                time.sleep(0.01)
-        except KeyboardInterrupt:
-            pass
 
     def start(self):
         if not self.started:
@@ -92,28 +82,44 @@ class Jober:
             util.disable_proxy()
             self.started = False
     
+    def wait(self, timeout: float = None):
+        try:
+            beg = time.time()
+            while True:
+                if timeout and time.time() - beg >= timeout:
+                    break
+                time.sleep(0.01)
+        except KeyboardInterrupt:
+            pass
+    
     @property
     def jobs(self) -> Iterable[Job]:
         for job in self._id_to_job.values():
             yield job
 
-    def run_job(self, *args, **kwargs) -> Job:
+    def run_job(self, *_args, **_kwargs) -> Job:
         """
-        Sample usages:
+        Run new job:
         
-            jober.run_job('sleep 1 && date', shell=True)
-        """
-        if isinstance(args[0], Job):
-            job = args[0]
-            run_args = args[1:]
-            run_kwargs = kwargs
-        else:
-            kwargs.setdefault('volatile', True)
-            job = self.add_job(*args, **kwargs)
-            run_args = ()
-            run_kwargs = {}
+            jober.run_job('date')
+        
+        Run existing job:
 
-        self._sched.run_singleshot(job, run_args, run_kwargs, **job._apscheduler_kwargs)
+            job = jober.get_job('<job_id>')
+            jober.run_job(job)
+        """
+        if isinstance(_args[0], Job):
+            job = _args[0]
+            run_args = _kwargs.get('args')
+            run_kwargs = _kwargs.get('kwargs')
+        else:
+            _kwargs.setdefault('volatile', True)
+            job = self.add_job(*_args, **_kwargs)
+            run_args = None
+            run_kwargs = None
+
+        run = job.new_run(args=run_args, kwargs=run_kwargs)
+        run.native_id = self._sched.run_singleshot(run, **job._apscheduler_kwargs)
 
         return job
 
@@ -135,39 +141,6 @@ class Jober:
         self.start()  # ensure started
 
         return job
-    
-    def as_dict(self):
-        return {**self.conf}
-    
-    def _schedule_job(self, job, when):
-        if isinstance(when, (int, float)):
-            self._sched.run_interval(job, when, **job._apscheduler_kwargs)
-        elif isinstance(when, str):
-            self._sched.run_cron(job, when, **job._apscheduler_kwargs)
-        else:
-            raise NotImplementedError(f'unsupported when: {when}')
-    
-    def _add_job(self, job):
-        self._id_to_job[job.id] = job
-    
-    def prune_jobs(self) -> list[Job]:
-        pruned = []
-        for job_id in [d.id for d in self.jobs]:
-            job = self.remove_job(job_id)
-            if job:
-                pruned.append(job)
-        return pruned
-
-    def remove_job(self, job_id: str) -> Optional[Job]:
-        job = self.get_job(job_id)
-        if not job:
-            logger.warning(f'remove_job: job ID not found {job_id}')
-            return None
-        if not job.removable:
-            logger.warning(f'remove_job: job not removable {job_id}')
-            return None
-        del self._id_to_job[job_id]
-        return job
 
     def make_job(
             self,
@@ -185,13 +158,7 @@ class Jober:
             stderr=None,
             **job_kwargs,
     ) -> 'Job':
-        """
-        Make a job without adding to jober.
-
-        target: Union[str, Callable]
-        args: tuple = None
-        kwargs: dict = None
-        """
+        """Make a job without adding to jober."""
         target = Target.make(
             target,
             args,
@@ -215,44 +182,28 @@ class Jober:
         job.get_events_queue = lambda: self._events_queue
         job.capture = self.conf.capture
         return job
-
-    def get_job(self, job_id: str) -> 'Job':
-        """
-        Get job by ID.
-
-        Params:
-            job_id - ID of the job.
-
-        Returns:
-            Job with given ID or None if not found
-        """
+    
+    def get_job(self, job_id: str) -> Optional[Job]:
         return self._id_to_job.get(job_id)
+    
+    def prune_jobs(self) -> list[Job]:
+        pruned = []
+        for job_id in [d.id for d in self.jobs if d.volatile]:
+            job = self.remove_job(job_id)
+            if job:
+                pruned.append(job)
+        return pruned
 
-    def iter_jobs(
-            self,
-            status: str = None,
-            mode: str = None,
-    ) -> Iterable['Job']:
-        """
-        Get an iterable of jobs.
-
-        Params:
-            status - Filter with given status
-            mode - Filter with given mode
-        """
-        jobs = self._id_to_job.values()
-        for job in jobs:
-            if mode and job.mode != mode:
-                continue
-            if status and job.status != status:
-                continue
-            yield job
-
-    def get_jobs(self, *args, **kwargs) -> List['Job']:
-        """
-        Get all jobs. See `iter_jobs` for filter/sort options.
-        """
-        return list(self.iter_jobs(*args, **kwargs))
+    def remove_job(self, job_id: str) -> Optional[Job]:
+        job = self.get_job(job_id)
+        if not job:
+            logger.warning(f'remove_job: job ID not found {job_id}')
+            return None
+        if not job.removable:
+            logger.warning(f'remove_job: job not removable {job_id}')
+            return None
+        del self._id_to_job[job_id]
+        return job
 
     def add_listener(self, callback: Callable[[dict], None]) -> any:
         """
@@ -279,6 +230,20 @@ class Jober:
         listeners = set(self._listeners)
         listeners.discard(token)
         self._listeners = listeners
+    
+    def as_dict(self):
+        return {**self.conf}
+    
+    def _schedule_job(self, job, when):
+        if isinstance(when, (int, float)):
+            self._sched.run_interval(job, when, **job._apscheduler_kwargs)
+        elif isinstance(when, str):
+            self._sched.run_cron(job, when, **job._apscheduler_kwargs)
+        else:
+            raise NotImplementedError(f'unsupported when: {when}')
+    
+    def _add_job(self, job):
+        self._id_to_job[job.id] = job
 
     def _collect_events(self):
         queue = self._events_queue

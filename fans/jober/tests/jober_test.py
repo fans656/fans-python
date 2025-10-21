@@ -11,8 +11,7 @@ from fans.jober.tests.conftest import parametrized
 
 class Test_load_jobs_from_conf:
 
-    def test_default(self, tmp_path):
-        """Can load jobs from conf file"""
+    def test_load_jobs_from_conf(self, tmp_path):
         conf_path = tmp_path / 'conf.yaml'
         with conf_path.open('w') as f:
             yaml.dump({
@@ -27,7 +26,7 @@ class Test_load_jobs_from_conf:
         assert jobs
         
         job = jober.get_job('foo')
-        jober.run_job(job, args=('hello',), kwargs={'count': 2})
+        jober.run_job(job, args=['hello'], kwargs={'count': 2})
         job.wait()
         assert job.output == 'hello\nhello\n'
 
@@ -40,7 +39,6 @@ class Test_make_job:
 
 
 class Test_get_job:
-    """Can get job by ID"""
 
     def test_not_found(self, jober):
         assert jober.get_job('asdf') is None
@@ -52,23 +50,22 @@ class Test_get_job:
     @parametrized()
     def test_custom_id(self, conf, jober):
         jober.add_job(conf.target, id='foo')
-        assert jober.get_job('foo')
+        assert jober.get_job('foo').id == 'foo'
 
 
 class Test_get_jobs:
-    """Can list all jobs"""
 
     def test_get_jobs(self, jober):
         jober.add_job('ls')
         jober.add_job('date')
-        jobs = jober.get_jobs()
+        jobs = list(jober.jobs)
         assert len(jobs) == 2
 
 
 class Test_remove:
 
     def test_remove(self, jober):
-        job = jober.add_job('ls', volatile=True)
+        job = jober.add_job('ls')
         assert jober.get_job(job.id)
         assert jober.remove_job(job.id)
         assert jober.get_job(job.id) is None

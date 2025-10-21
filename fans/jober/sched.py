@@ -41,6 +41,7 @@ class Sched:
             kwargs=kwargs,
             **extra_kwargs,
         )
+        return job.id
 
     def run_interval(self, func, interval: int|float, args=(), kwargs={}, **extra_kwargs):
         job = self._sched.add_job(

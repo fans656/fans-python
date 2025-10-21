@@ -34,6 +34,7 @@ class Run:
         self.end_time = None
         self.trace = None
         self.result = None
+        self.native_id = None  # apscheduler job id
 
         self.get_events_queue = noop
         self.capture = None
