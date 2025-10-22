@@ -18,7 +18,16 @@ logger = get_logger(__name__)
 
 class Run:
 
-    def __init__(self, *, target, job_id, run_id, args=None, kwargs=None):
+    def __init__(
+        self,
+        *,
+        target,
+        job_id,
+        run_id,
+        args=None,
+        kwargs=None,
+        capture=None,
+    ):
         if args is not None or kwargs is not None:
             self.target = target.clone(args=args, kwargs=kwargs)
         else:
@@ -28,6 +37,7 @@ class Run:
         self.run_id = run_id
         self.args = args
         self.kwargs = kwargs
+        self.capture = capture
 
         self.status = 'init'
         self.beg_time = None
@@ -37,7 +47,6 @@ class Run:
         self.native_id = None  # apscheduler job id
 
         self.get_events_queue = noop
-        self.capture = None
 
         self._before_run = noop
         self._outputs = []

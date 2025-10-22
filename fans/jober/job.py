@@ -116,9 +116,9 @@ class Job:
             run_id=run_id,
             args=args,
             kwargs=kwargs,
+            capture=self.capture,
         )
         run.get_events_queue = self.get_events_queue
-        run.capture = self.capture
 
         self._id_to_run[run_id] = run
         self._recent_runs.append(run)

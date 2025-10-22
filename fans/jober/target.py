@@ -37,27 +37,21 @@ class Target:
     
         target = Target.make(func, process=True, encoding='gbk')
         target()
-    
-    Following target types are supported:
-    - external executable
-        - command: execute external binary, e.g. `Target.make('ls')`
-    - python executable
-        - python_script: execute a python script using same intepreter as current process, e.g. `Target.make('crawl.py')`
-        - python_module: execute a python module using same intepreter as current process, e.g. `Target.make('crawl.prices')`
-    - python callable
-        - python_callable: execute python callable, e.g. `Target.make(func)`
-        - python_script_callable: load callable from python script, e.g. `Target.make('crawl.py:main')`
-        - python_module_callable: load callable from python module, e.g. `Target.make('crawl.prices:main')`
     """
 
     class Type:
 
-        command = 'command'
-        python_script = 'python_script'
-        python_module = 'python_module'
-        python_callable = 'python_callable'
-        python_script_callable = 'python_script_callable'
-        python_module_callable = 'python_module_callable'
+        # external executable
+        command = 'command'                                 # e.g. `Target.make('ls')`
+
+        # python executable
+        python_script = 'python_script'                     # e.g. `Target.make('crawl.py')`
+        python_module = 'python_module'                     # e.g. `Target.make('crawl.prices')`
+
+        # python callable
+        python_callable = 'python_callable'                 # e.g. `Target.make(func)`
+        python_script_callable = 'python_script_callable'   # e.g. `Target.make('crawl.py:main')`
+        python_module_callable = 'python_module_callable'   # e.g. `Target.make('crawl.prices:main')`
 
     @staticmethod
     def make(source, args=(), kwargs={}, **options):
@@ -67,6 +61,9 @@ class Target:
     def __init__(self, source, args=(), kwargs={}, **options):
         """
         Availble options:
+        
+            shell: bool - whether execute by shell (`Popen(shell=True)`)
+            process: bool - whether execute callable target in process instead
         """
         self.source = source
         self.args = args
@@ -122,142 +119,128 @@ class CommandTarget(Target):
 
     type = Target.Type.command
 
-    def _do_call(self):
+    def __call__(self):
         cmd = self.source
+
         if not self.options.get('shell'):
             if isinstance(cmd, str):
                 cmd = shlex.split(cmd)
-            cmd = [*cmd, *self.args, *_to_cmdline_options(self.kwargs)]
+            cmd = [*cmd, *_to_cmdline_options(self.args, self.kwargs)]
+
         return self._popen(cmd)
 
 
-class PythonExecutableTarget(Target):
-
-    def _do_call(self):
-        cmd = [sys.executable, *self.get_execute_args(), *self.args, *_to_cmdline_options(self.kwargs)]
-        return self._popen(cmd)
-
-
-class PythonScriptTarget(PythonExecutableTarget):
+class PythonScriptTarget(Target):
 
     type = Target.Type.python_script
+    
+    def __call__(self):
+        return self._popen([
+            sys.executable,
+            self.source,
+            *_to_cmdline_options(self.args, self.kwargs),
+        ])
 
-    def get_execute_args(self):
-        return (self.source,)
 
-
-class PythonModuleTarget(PythonExecutableTarget):
+class PythonModuleTarget(Target):
 
     type = Target.Type.python_module
-
-    def get_execute_args(self):
-        return ('-m', self.source,)
-
-
-class CallableTarget(Target):
-
-    def _prepare_call(self):
-        self.func = None
-
-    def _do_call(self):
-        if self.options.get('process'):
-            return self._execute_func_in_process()
-        else:
-            return self.func(*self.args, **self.kwargs)
     
-    def _execute_func_in_process(self):
-        raise NotImplementedError()
+    def __call__(self):
+        return self._popen([
+            sys.executable,
+            '-m',
+            self.source,
+            *_to_cmdline_options(self.args, self.kwargs),
+        ])
 
 
-class PythonCallableTarget(CallableTarget):
+class PythonCallableTarget(Target):
 
     type = Target.Type.python_callable
-
-    def _prepare_call(self):
-        self.func = self.source
     
-    def _execute_func_in_process(self):
-        data = (self.func, self.args, self.kwargs)
-        data_text = base64.b64encode(pickle.dumps(data)).decode("utf-8")
-        args = [
-            sys.executable,
-            '-c',
-            (
-                f'import pickle, base64;'
-                f'func, args, kwargs = pickle.loads(base64.b64decode("{data_text}"));'
-                f'func(*args, **kwargs)'
-            ),
-        ]
-        return self._popen(args)
+    def __call__(self):
+        if self.options.get('process'):
+            return self._popen([
+                sys.executable,
+                '-c',
+                (
+                    f'import pickle, base64;'
+                    f'func, args, kwargs = {_serialize_converted(self.source, self.args, self.kwargs)};'
+                    f'func(*args, **kwargs)'
+                ),
+            ])
+        else:
+            return self.source(*self.args, **self.kwargs)
 
 
-class PythonScriptCallableTarget(CallableTarget):
+class PythonScriptCallableTarget(Target):
 
     type = Target.Type.python_script_callable
 
-    def _prepare_call(self):
+    def __call__(self):
         path, func_name = self.source.split(':')
         path = self.cwd / path
-        name = hashlib.md5(str(path).encode('utf-8')).hexdigest()
-        spec = importlib.util.spec_from_file_location(name, path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        self.func = getattr(module, func_name)
-        
-        self.path = path
-        self.func_name = func_name
-    
-    def _execute_func_in_process(self):
-        data = (self.args, self.kwargs)
-        data_text = base64.b64encode(pickle.dumps(data)).decode("utf-8")
-        self._popen([
-            sys.executable,
-            '-c',
-            (
-                f'import pickle, base64;'
-                f'import importlib.util;'
-                f'spec = importlib.util.spec_from_file_location("", "{self.path}");'
-                f'module = importlib.util.module_from_spec(spec);'
-                f'spec.loader.exec_module(module);'
-                f'func = getattr(module, "{self.func_name}");'
-                f'args, kwargs = pickle.loads(base64.b64decode("{data_text}"));'
-                f'func(*args, **kwargs);'
-            ),
-        ])
+
+        if self.options.get('process'):
+            return self._popen([
+                sys.executable,
+                '-c',
+                (
+                    f'import pickle, base64, importlib.util;'
+                    f'spec = importlib.util.spec_from_file_location("", "{path}");'
+                    f'module = importlib.util.module_from_spec(spec);'
+                    f'spec.loader.exec_module(module);'
+                    f'func = getattr(module, "{func_name}");'
+                    f'args, kwargs = {_serialize_converted(self.args, self.kwargs)};'
+                    f'func(*args, **kwargs);'
+                ),
+            ])
+        else:
+            name = hashlib.md5(str(path).encode('utf-8')).hexdigest()
+            spec = importlib.util.spec_from_file_location(name, path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+            func = getattr(module, func_name)
+            
+            return func(*self.args, **self.kwargs)
 
 
-class PythonModuleCallableTarget(CallableTarget):
+
+class PythonModuleCallableTarget(Target):
 
     type = Target.Type.python_module_callable
 
-    def _prepare_call(self):
+    def __call__(self):
         module_name, func_name = self.source.split(':')
-        spec = importlib.util.find_spec(module_name)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        self.func = getattr(module, func_name)
-        
-        self.module_name = module_name
-        self.func_name = func_name
-    
-    def _execute_func_in_process(self):
-        data = (self.args, self.kwargs)
-        data_text = base64.b64encode(pickle.dumps(data)).decode("utf-8")
-        self._popen([
-            sys.executable,
-            '-c',
-            (
-                f'import pickle, base64;'
-                f'from {self.module_name} import {self.func_name};'
-                f'args, kwargs = pickle.loads(base64.b64decode("{data_text}"));'
-                f'{self.func_name}(*args, **kwargs);'
-            ),
-        ])
+
+        if self.options.get('process'):
+            return self._popen([
+                sys.executable,
+                '-c',
+                (
+                    f'import pickle, base64;'
+                    f'from {module_name} import {func_name};'
+                    f'args, kwargs = {_serialize_converted(self.args, self.kwargs)};'
+                    f'{func_name}(*args, **kwargs);'
+                ),
+            ])
+        else:
+            spec = importlib.util.find_spec(module_name)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+            func = getattr(module, func_name)
+            
+            return func(*self.args, **self.kwargs)
 
 
-def _to_cmdline_options(kvs: dict):
+def _to_cmdline_options(args, kwargs):
     def gen():
-        for key, value in kvs.items():
+        for arg in args:
+            yield arg
+        for key, value in kwargs.items():
             yield f'--{key}'
             yield f'{value}'
     return list(gen())
@@ -276,16 +259,12 @@ def _get_impl_cls(source: Union[Callable, str, List[str]], **options):
             if ':' in source:
                 domain_str, func_str = source.split(':')
                 if domain_str.endswith('.py'):
-                    # e.g. "crawl.py:main"
                     return PythonScriptCallableTarget
                 else:
-                    # e.g. "crawl.prices:main"
                     return PythonModuleCallableTarget
             elif source.endswith('.py'):
-                # e.g. "crawl.py"
                 return PythonScriptTarget
             elif not source.startswith('.') and '.' in source:
-                # e.g. "crawl.prices"
                 return PythonModuleTarget
         return CommandTarget
     else:
@@ -298,6 +277,11 @@ def _reprint_proc_stdout(proc):
             print(line, end='')
     except KeyboardInterrupt:
         pass
+
+
+def _serialize_converted(*data):
+    text = base64.b64encode(pickle.dumps(data)).decode("utf-8")
+    return f"pickle.loads(base64.b64decode('{text}'))"
 
 
 def _make_proc(

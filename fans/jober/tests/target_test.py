@@ -10,6 +10,7 @@ from fans.jober.target import (
     PythonScriptTarget,
     PythonModuleTarget,
 )
+from fans.jober.tests.samples.echo import echo
 
 
 def test_types():
@@ -93,6 +94,20 @@ class Test_python_callable_target:
 
         func.assert_called_with(3, 5, foo='bar')
 
+    def test_execute_in_process(self, tmp_path):
+        out_fpath = tmp_path / 'out.txt'
+
+        target = Target.make(
+            echo,
+            args=['foo'],
+            kwargs={'file': str(out_fpath)},
+            process=True,
+        )
+        target()
+        
+        with out_fpath.open() as f:
+            assert f.read() == 'foo\n'
+
 
 class Test_python_script_callable:
 
@@ -106,6 +121,21 @@ class Test_python_script_callable:
         with fpath.open() as f:
             assert f.read() == 'foo\nfoo\nfoo\n'
 
+    def test_execute_in_process(self, tmp_path):
+        out_fpath = tmp_path / 'out.txt'
+        script_path = Path(__file__).absolute().parent / 'samples/echo.py'
+
+        target = Target.make(
+            f"{script_path}:echo",
+            args=['foo'],
+            kwargs={'file': str(out_fpath)},
+            process=True,
+        )
+        target()
+        
+        with out_fpath.open() as f:
+            assert f.read() == 'foo\n'
+
 
 class Test_python_module_callable:
 
@@ -117,3 +147,17 @@ class Test_python_module_callable:
 
         with fpath.open() as f:
             assert f.read() == 'foo\nfoo\nfoo\n'
+
+    def test_execute_in_process(self, tmp_path):
+        out_fpath = tmp_path / 'out.txt'
+
+        target = Target.make(
+            'fans.jober.tests.samples.echo:echo',
+            args=['foo'],
+            kwargs={'file': str(out_fpath)},
+            process=True,
+        )
+        target()
+        
+        with out_fpath.open() as f:
+            assert f.read() == 'foo\n'
