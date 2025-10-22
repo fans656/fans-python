@@ -71,8 +71,7 @@ class Target:
         self.options = options
 
     def __call__(self):
-        self._prepare_call()
-        return self._do_call()
+        raise NotImplementedError()
     
     def clone(self, args=None, kwargs=None, **options):
         if args is None:
@@ -91,28 +90,24 @@ class Target:
     @property
     def cwd(self):
         return Path(self.options.get('cwd') or os.getcwd()).expanduser()
-
-    def _prepare_call(self):
-        pass
-
-    def _do_call(self):
-        raise NotImplementedError()
     
-    def _popen(self, cmd: str|list[str]):
-        proc_bunch = _make_proc(cmd, **self.options)
+    def _run_in_place(self, func):
+        return func(*self.args, **self.kwargs)
 
-        if not proc_bunch.should_close:
-            _reprint_proc_stdout(proc_bunch.proc)
-
-        proc_bunch.proc.wait()
-        
-        if proc_bunch.should_close:
-            if proc_bunch.stdout:
-                proc_bunch.stdout.close()
-            if proc_bunch.stderr:
-                proc_bunch.stderr.close()
-        
-        return proc_bunch.proc.returncode
+    def _run_in_process(self, cmd: str|list[str]):
+        options = self.options
+        with _Capture(options) as capture:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(self.cwd),
+                shell=options.get('shell', False),
+                text=options.get('text', True),
+                encoding=options.get('encoding', 'utf-8'),
+                bufsize=options.get('bufsize', 1),
+                errors=options.get('errors', 'replace'),
+                **capture.popen_kwargs,
+            )
+            return capture.wait_process(proc)
 
 
 class CommandTarget(Target):
@@ -127,7 +122,7 @@ class CommandTarget(Target):
                 cmd = shlex.split(cmd)
             cmd = [*cmd, *_to_cmdline_options(self.args, self.kwargs)]
 
-        return self._popen(cmd)
+        return self._run_in_process(cmd)
 
 
 class PythonScriptTarget(Target):
@@ -135,7 +130,7 @@ class PythonScriptTarget(Target):
     type = Target.Type.python_script
     
     def __call__(self):
-        return self._popen([
+        return self._run_in_process([
             sys.executable,
             self.source,
             *_to_cmdline_options(self.args, self.kwargs),
@@ -147,7 +142,7 @@ class PythonModuleTarget(Target):
     type = Target.Type.python_module
     
     def __call__(self):
-        return self._popen([
+        return self._run_in_process([
             sys.executable,
             '-m',
             self.source,
@@ -161,7 +156,7 @@ class PythonCallableTarget(Target):
     
     def __call__(self):
         if self.options.get('process'):
-            return self._popen([
+            return self._run_in_process([
                 sys.executable,
                 '-c',
                 (
@@ -171,7 +166,7 @@ class PythonCallableTarget(Target):
                 ),
             ])
         else:
-            return self.source(*self.args, **self.kwargs)
+            return self._run_in_place(self.source)
 
 
 class PythonScriptCallableTarget(Target):
@@ -183,7 +178,7 @@ class PythonScriptCallableTarget(Target):
         path = self.cwd / path
 
         if self.options.get('process'):
-            return self._popen([
+            return self._run_in_process([
                 sys.executable,
                 '-c',
                 (
@@ -201,11 +196,8 @@ class PythonScriptCallableTarget(Target):
             spec = importlib.util.spec_from_file_location(name, path)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-
             func = getattr(module, func_name)
-            
-            return func(*self.args, **self.kwargs)
-
+            return self._run_in_place(func)
 
 
 class PythonModuleCallableTarget(Target):
@@ -216,7 +208,7 @@ class PythonModuleCallableTarget(Target):
         module_name, func_name = self.source.split(':')
 
         if self.options.get('process'):
-            return self._popen([
+            return self._run_in_process([
                 sys.executable,
                 '-c',
                 (
@@ -230,10 +222,8 @@ class PythonModuleCallableTarget(Target):
             spec = importlib.util.find_spec(module_name)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-
             func = getattr(module, func_name)
-            
-            return func(*self.args, **self.kwargs)
+            return self._run_in_place(func)
 
 
 def _to_cmdline_options(args, kwargs):
@@ -284,46 +274,50 @@ def _serialize_converted(*data):
     return f"pickle.loads(base64.b64decode('{text}'))"
 
 
-def _make_proc(
-    cmd,
-    cwd=None,
-    encoding='utf-8',
-    shell=False,
-    text=True,
-    bufsize=1,  # line buffered
-    errors='replace',
-    stdout=None,
-    stderr=None,
-    **__,
-):
-    ret = bunch()
-
-    if stdout is None:
-        stdout = subprocess.PIPE
-    else:
-        stdout = Path(stdout).expanduser().open('w', encoding=encoding)
-        ret.stdout = stdout
-        ret.should_close = True
-
-    if stderr is None:
-        stderr = subprocess.STDOUT
-    else:
-        stderr = Path(stderr).expanduser().open('w', encoding=encoding)
-        ret.stderr = stderr
-        ret.should_close = True
+class _Capture:
     
-    cwd = str(Path(cwd)) if cwd else os.getcwd()
+    def __init__(self, options):
+        self.options = options
+        
+        self.popen_kwargs = {}
 
-    ret.proc = subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        stdout=stdout,
-        stderr=stderr,
-        text=text,
-        encoding=encoding,
-        bufsize=bufsize,
-        errors=errors,
-        shell=shell,
-    )
+        self.stdout_file = None
+        self.stderr_file = None
+        
+        self.should_consume_stdout = False
     
-    return ret
+    def wait_process(self, proc):
+        if self.should_consume_stdout:
+            try:
+                for line in iter(proc.stdout.readline, ''):
+                    print(line, end='')
+            except KeyboardInterrupt:
+                pass
+
+        proc.wait()
+
+        return proc.returncode
+    
+    def __enter__(self):
+        stdout = self.options.get('stdout')
+        if stdout:
+            self.stdout_file = Path(stdout).open('w')
+            self.popen_kwargs['stdout'] = self.stdout_file
+        else:
+            self.popen_kwargs['stdout'] = subprocess.PIPE
+            self.should_consume_stdout = True
+        
+        stderr = self.options.get('stderr')
+        if stderr:
+            self.stderr_file = Path(stderr).open('w')
+            self.popen_kwargs['stderr'] = self.stdout_file
+        else:
+            self.popen_kwargs['stderr'] = subprocess.STDOUT
+        
+        return self
+    
+    def __exit__(self, *_, **__):
+        if self.stdout_file:
+            self.stdout_file.close()
+        if self.stderr_file:
+            self.stderr_file.close()
