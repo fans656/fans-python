@@ -74,11 +74,19 @@ class Capture:
     
     @property
     def out(self) -> str:
-        return ''.join(self._stdout_output.contents)
+        if self.out_path:
+            with self.out_path.open() as f:
+                return f.read()
+        else:
+            return ''.join(self._stdout_output.contents)
     
     @property
     def err(self) -> str:
-        return ''.join(self._stderr_output.contents)
+        if self.err_path:
+            with self.err_path.open() as f:
+                return f.read()
+        else:
+            return ''.join(self._stderr_output.contents)
     
     def popen(self, *args, **kwargs):
         """

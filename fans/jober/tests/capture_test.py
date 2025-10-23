@@ -77,6 +77,7 @@ class TestCaptureInProcess:
             assert capture.out == out_content
             assert not cap.out
         elif stdout == 'file':
+            assert capture.out == out_content
             with stdout_fpath.open() as f:
                 assert f.read() == out_content
             assert not cap.out
@@ -90,6 +91,7 @@ class TestCaptureInProcess:
             assert capture.err == err_content
             assert not cap.err
         elif stderr == 'file':
+            assert capture.err == err_content
             with stderr_fpath.open() as f:
                 assert f.read() == err_content
             assert not cap.err
@@ -108,7 +110,7 @@ class TestCaptureInProcess:
         with capture.popen('echo foo && echo bar >&2', shell=True, text=True):
             pass
         
+        assert capture.out == 'foo\nbar\n'
         with out_fpath.open() as f:
             assert f.read() == 'foo\nbar\n'
-        assert not capture.out
         assert not capture.err
