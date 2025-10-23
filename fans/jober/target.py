@@ -103,23 +103,22 @@ class Target:
         return Path(self.options.get('cwd') or os.getcwd()).expanduser()
     
     def _run_in_place(self, func):
-        with (self.capture or Capture(**self.options)) as capture:
+        with (self.capture or Capture(**self.options)):
             return func(*self.args, **self.kwargs)
 
     def _run_in_process(self, cmd: str|list[str]):
         options = self.options
-        with (self.capture or Capture(**options)) as capture:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(self.cwd),
-                shell=options.get('shell', False),
-                text=options.get('text', True),
-                encoding=options.get('encoding', 'utf-8'),
-                bufsize=options.get('bufsize', 1),
-                errors=options.get('errors', 'replace'),
-                **capture.popen_kwargs,
-            )
-            return capture.wait_process(proc)
+        capture = self.capture or Capture(**options)
+        with capture.popen(
+            cmd,
+            cwd=str(self.cwd),
+            shell=options.get('shell', False),
+            text=options.get('text', True),
+            encoding=options.get('encoding', 'utf-8'),
+            bufsize=options.get('bufsize', 1),
+            errors=options.get('errors', 'replace'),
+        ) as proc:
+            return proc.returncode
 
 
 class CommandTarget(Target):
