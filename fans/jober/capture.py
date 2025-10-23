@@ -8,6 +8,24 @@ import werkzeug.local
 
 
 class Capture:
+    """
+    Sample usage:
+    
+        with Capture() as capture:
+            print('foo')
+            print('bar', file=sys.stderr)
+        
+        assert capture.out == 'foo\n'
+        assert capture.err == 'bar\n'
+    
+    for sub process:
+    
+        capture = Capture()
+        with capture.popen('echo foo && echo bar >&2', shell=True):
+            pass
+        assert capture.out == 'foo\n'
+        assert capture.err == 'bar\n'
+    """
 
     _enabled = False
     _orig_stdout = sys.stdout
@@ -24,23 +42,26 @@ class Capture:
             process: bool - whether for process capture, defaults to False
         
             stdout: str|None - defaults to ':memory:'
-                - if None, no capture is done
-                - if ':memory:', capture into memory, accessible by `.stdout`, `.stdout_lines`
-                - other str considered as file path
+                - if None, no capture will occur
+                - if ':memory:', capture into memory, accessible by `.out`
+                - other str is considered as file path
 
             stderr: str|None - defaults to ':memory:'
+                - if None, no capture will occur
+                - if ':memory:', capture into memory, accessible by `.err`
                 - if ':stdout:', then same as stdout
+                - other str is considered as file path
         """
         self.options = options
         self.options.setdefault('stdout', ':memory:')
         self.options.setdefault('stderr', ':memory:')
-        
-        self.popen_kwargs = {}
 
-        self.stdout_file = None
-        self.stderr_file = None
-        
-        self._for_process = False
+        self.out_path = None
+        self.err_path = None
+        self.out_file = None
+        self.err_file = None
+        self.proc = None
+
         self._should_enable_disable = options.get('should_enable_disable', True)
         self._should_delete_proxy = options.get('should_delete_proxy', True)
         self._should_collect_stdout = False
@@ -60,37 +81,80 @@ class Capture:
         return ''.join(self._stderr_output.contents)
     
     def popen(self, *args, **kwargs):
-        self._for_process = True
-
+        """
+        Create a sub process and capture its output.
+        
+        `args` and `kwargs` will be passed to `subprocess.Popen`, with `kwargs` updated if necessary.
+        """
         stdout = self.options['stdout']
         if stdout is None:
-            self.popen_kwargs['stdout'] = None
+            kwargs['stdout'] = None
         elif stdout.startswith(':'):
             if stdout == ':memory:':
-                self.popen_kwargs['stdout'] = subprocess.PIPE
+                kwargs['stdout'] = subprocess.PIPE
                 self._should_collect_stdout = True
         else:
-            self.stdout_file = Path(stdout).open('w')
-            self.popen_kwargs['stdout'] = self.stdout_file
+            self.out_path = Path(stdout)
+            kwargs['stdout'] = self.out_file = self.out_path.open('w')
         
         stderr = self.options['stderr']
         if stderr is None:
-            self.popen_kwargs['stderr'] = None
+            kwargs['stderr'] = None
         elif stderr.startswith(':'):
             if stderr == ':memory:':
-                self.popen_kwargs['stderr'] = subprocess.PIPE
+                kwargs['stderr'] = subprocess.PIPE
                 self._should_collect_stderr = True
             elif stderr == ':stdout:':
-                self.popen_kwargs['stderr'] = subprocess.STDOUT
+                kwargs['stderr'] = subprocess.STDOUT
         else:
-            self.stderr_file = Path(stderr).open('w')
-            self.popen_kwargs['stderr'] = self.stderr_file
+            self.err_path = Path(stderr)
+            kwargs['stderr'] = self.err_file = self.err_path.open('w')
 
-        kwargs.update(self.popen_kwargs)
+        self.proc = subprocess.Popen(*args, **kwargs)
+        
+        return self
+    
+    def __enter__(self):
+        if self.proc:
+            self._collect_outputs()
+            self.proc.wait()
+        else:
+            if self._should_enable_disable:
+                self.enable_proxy()
 
-        proc = subprocess.Popen(*args, **kwargs)
+            if self.options['stdout'] == ':memory:':
+                _redirect_to(Capture._stdout_targets, self._stdout_output)
+                self._should_collect_stdout = True
+                self._stdout_redirected = True
+            
+            stderr = self.options['stderr']
+            if stderr in (':memory:', ':stdout:'):
+                if stderr == ':memory:':
+                    _redirect_to(Capture._stderr_targets, self._stderr_output)
+                    self._should_collect_stderr = True
+                elif stderr == ':stdout:':
+                    _redirect_to(Capture._stderr_targets, self._stdout_output)
+                self._stderr_redirected = True
 
+        return self
+    
+    def __exit__(self, *_, **__):
+        if self.out_file:
+            self.out_file.close()
+        if self.err_file:
+            self.err_file.close()
+        if self._stdout_redirected:
+            _redirect_to(Capture._stdout_targets, None)
+        if self._stderr_redirected:
+            _redirect_to(Capture._stderr_targets, None)
+
+        if not self.proc:
+            if self._should_enable_disable:
+                self.disable_proxy()
+    
+    def _collect_outputs(self):
         if self._should_collect_stdout or self._should_collect_stderr:
+            proc = self.proc
             fds = []
             fd_mapping = {}
             
@@ -113,44 +177,6 @@ class Capture:
                         output.write(line)
             except KeyboardInterrupt:
                 pass
-
-        proc.wait()
-        
-        return proc
-    
-    def __enter__(self):
-        if not self._for_process:
-            if self._should_enable_disable:
-                self.enable_proxy()
-
-            if self.options['stdout'] == ':memory:':
-                self._should_collect_stdout = True
-                _redirect_to(Capture._stdout_targets, self._stdout_output)
-                self._stdout_redirected = True
-            
-            stderr = self.options['stderr']
-            if stderr in (':memory:', ':stdout:'):
-                if stderr == ':memory:':
-                    _redirect_to(Capture._stderr_targets, self._stderr_output)
-                elif stderr == ':stdout:':
-                    _redirect_to(Capture._stderr_targets, self._stdout_output)
-                self._stderr_redirected = True
-        
-        return self
-    
-    def __exit__(self, *_, **__):
-        if self.stdout_file:
-            self.stdout_file.close()
-        if self.stderr_file:
-            self.stderr_file.close()
-        if self._stdout_redirected:
-            _redirect_to(Capture._stdout_targets, None)
-        if self._stderr_redirected:
-            _redirect_to(Capture._stderr_targets, None)
-
-        if not self._for_process:
-            if self._should_enable_disable:
-                self.disable_proxy()
 
     @staticmethod
     def enable_proxy():

@@ -59,8 +59,11 @@ class TestCaptureInProcess:
             stderr_fpath = tmp_path / 'stderr.log'
             capture_kwargs['stderr'] = str(stderr_fpath)
 
-        capture = Capture(**capture_kwargs)
-        with capture.popen('echo foo && echo bar >&2', shell=True, text=True):
+        with Capture(**capture_kwargs).popen(
+            'echo foo && echo bar >&2',
+            shell=True,
+            text=True,
+        ) as capture:
             pass
 
         cap = capfd.readouterr()

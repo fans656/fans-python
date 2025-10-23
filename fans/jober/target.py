@@ -108,8 +108,7 @@ class Target:
 
     def _run_in_process(self, cmd: str|list[str]):
         options = self.options
-        capture = self.capture or Capture(**options)
-        with capture.popen(
+        with (self.capture or Capture(**options)).popen(
             cmd,
             cwd=str(self.cwd),
             shell=options.get('shell', False),
@@ -117,8 +116,8 @@ class Target:
             encoding=options.get('encoding', 'utf-8'),
             bufsize=options.get('bufsize', 1),
             errors=options.get('errors', 'replace'),
-        ) as proc:
-            return proc.returncode
+        ) as capture:
+            return capture.proc.returncode
 
 
 class CommandTarget(Target):
