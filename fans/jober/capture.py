@@ -1,4 +1,5 @@
 import sys
+import select
 import threading
 import subprocess
 from pathlib import Path
@@ -40,6 +41,7 @@ class Capture:
         self._should_enable_disable = options.get('should_enable_disable', True)
         self._should_delete_proxy = options.get('should_delete_proxy', True)
         self._should_collect_stdout = False
+        self._should_collect_stderr = False
         self._stdout_redirected = False
         self._stderr_redirected = False
         
@@ -72,20 +74,40 @@ class Capture:
         if stderr is None:
             self.popen_kwargs['stderr'] = None
         elif stderr.startswith(':'):
-            if stderr == ':stdout:':
+            if stderr == ':memory:':
+                self.popen_kwargs['stderr'] = subprocess.PIPE
+                self._should_collect_stderr = True
+            elif stderr == ':stdout:':
                 self.popen_kwargs['stderr'] = subprocess.STDOUT
         else:
             self.stderr_file = Path(stderr).open('w')
-            self.popen_kwargs['stderr'] = self.stdout_file
+            self.popen_kwargs['stderr'] = self.stderr_file
 
         kwargs.update(self.popen_kwargs)
 
         proc = subprocess.Popen(*args, **kwargs)
 
-        if self._should_collect_stdout:
+        if self._should_collect_stdout or self._should_collect_stderr:
+            fds = []
+            fd_mapping = {}
+            
+            if self._should_collect_stdout:
+                fds.append(proc.stdout.fileno())
+                fd_mapping[proc.stdout.fileno()] = (proc.stdout, self._stdout_output)
+            if self._should_collect_stderr:
+                fds.append(proc.stderr.fileno())
+                fd_mapping[proc.stderr.fileno()] = (proc.stderr, self._stderr_output)
+
             try:
-                for line in iter(proc.stdout.readline, ''):
-                    self._stdout_output.write(line)
+                while fds:
+                    ready_fds, _, _ = select.select(fds, [], [])
+                    for fd in ready_fds:
+                        stream, output = fd_mapping[fd]
+                        line = stream.readline()
+                        if not line:
+                            fds.remove(fd)
+                            continue
+                        output.write(line)
             except KeyboardInterrupt:
                 pass
 
