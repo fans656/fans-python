@@ -2,6 +2,7 @@ import sys
 import select
 import threading
 import subprocess
+import contextlib
 from pathlib import Path
 
 import werkzeug.local
@@ -66,8 +67,6 @@ class Capture:
         self._should_delete_proxy = options.get('should_delete_proxy', True)
         self._should_collect_stdout = False
         self._should_collect_stderr = False
-        self._stdout_redirected = False
-        self._stderr_redirected = False
         
         self._stdout_output = _Output()
         self._stderr_output = _Output()
@@ -123,42 +122,54 @@ class Capture:
         return self
     
     def __enter__(self):
-        if self.proc:
-            self._collect_outputs()
-            self.proc.wait()
-        else:
-            if self._should_enable_disable:
-                self.enable_proxy()
-
-            if self.options['stdout'] == ':memory:':
-                _redirect_to(Capture._stdout_targets, self._stdout_output)
-                self._should_collect_stdout = True
-                self._stdout_redirected = True
-            
-            stderr = self.options['stderr']
-            if stderr in (':memory:', ':stdout:'):
-                if stderr == ':memory:':
-                    _redirect_to(Capture._stderr_targets, self._stderr_output)
-                    self._should_collect_stderr = True
-                elif stderr == ':stdout:':
-                    _redirect_to(Capture._stderr_targets, self._stdout_output)
-                self._stderr_redirected = True
-
+        self._cm = self._enterexit()
+        self._cm.__enter__()
         return self
     
-    def __exit__(self, *_, **__):
-        if self.out_file:
-            self.out_file.close()
-        if self.err_file:
-            self.err_file.close()
-        if self._stdout_redirected:
-            _redirect_to(Capture._stdout_targets, None)
-        if self._stderr_redirected:
-            _redirect_to(Capture._stderr_targets, None)
+    def __exit__(self, *args, **kwargs):
+        self._cm.__exit__(*args, **kwargs)
+    
+    @contextlib.contextmanager
+    def _enterexit(self):
+        try:
+            out_redirected = err_redirected = False
 
-        if not self.proc:
-            if self._should_enable_disable:
-                self.disable_proxy()
+            if self.proc:
+                self._collect_outputs()
+                self.proc.wait()
+            else:
+                if self._should_enable_disable:
+                    self.enable_proxy()
+
+                if self.options['stdout'] == ':memory:':
+                    _redirect_to(Capture._stdout_targets, self._stdout_output)
+                    self._should_collect_stdout = True
+                    out_redirected = True
+                
+                stderr = self.options['stderr']
+                if stderr in (':memory:', ':stdout:'):
+                    if stderr == ':memory:':
+                        _redirect_to(Capture._stderr_targets, self._stderr_output)
+                        self._should_collect_stderr = True
+                    elif stderr == ':stdout:':
+                        _redirect_to(Capture._stderr_targets, self._stdout_output)
+                    err_redirected = True
+
+            yield self
+
+        finally:
+            if self.out_file:
+                self.out_file.close()
+            if self.err_file:
+                self.err_file.close()
+            if out_redirected:
+                _redirect_to(Capture._stdout_targets, None)
+            if err_redirected:
+                _redirect_to(Capture._stderr_targets, None)
+
+            if not self.proc:
+                if self._should_enable_disable:
+                    self.disable_proxy()
     
     def _collect_outputs(self):
         if self._should_collect_stdout or self._should_collect_stderr:
