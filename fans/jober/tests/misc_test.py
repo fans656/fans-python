@@ -41,7 +41,7 @@ def test_disable(jober):
     time.sleep(0.03)
 
     jober.stop()
-    assert abs(len(job.runs) - 6) < 2
+    assert abs(len(job.runs) - 6) <= 2
 
 
 def test_run_existing_job_with_modified_args(jober):

@@ -1,24 +1,45 @@
+import sys
 import time
 from pathlib import Path
 
-from fans.jober import Jober
+import pytest
+
+from fans.jober.capture import Capture
 
 
-def test_proc_capture(jober, tmp_path):
-    stdout_fpath = tmp_path / 'stdout.log'
+class TestCaptureInplace:
+    
+    @pytest.mark.parametrize('stdout', [None, ':memory:'])
+    @pytest.mark.parametrize('stderr', [None, ':memory:'])
+    def test_inplace(self, stdout, stderr, capsys):
+        with Capture(stdout=stdout, stderr=stderr) as capture:
+            print('foo')
+            print('bar', file=sys.stderr)
 
-    job = jober.run_job('date', stdout=stdout_fpath)
-    job.wait()
+        cap = capsys.readouterr()
 
-    with Path(stdout_fpath).open() as f:
-        assert f.read().strip()
+        out_content = 'foo\n'
 
+        if stdout is None:
+            assert not capture.out
+            assert cap.out == out_content
+        elif stdout == ':memory:':
+            assert capture.out == out_content
+            assert not cap.out
+        
+        err_content = 'bar\n'
 
-#def test_thread_capture(jober, tmp_path):
-#    stdout_fpath = tmp_path / 'stdout.log'
-#
-#    job = jober.run_job(lambda: print('hi'), stdout=stdout_fpath)
-#    job.wait()
-#
-#    with Path(stdout_fpath).open() as f:
-#        assert f.read().strip()
+        if stderr is None:
+            assert not capture.err
+            assert cap.err == err_content
+        elif stderr == ':memory:':
+            assert capture.err == err_content
+            assert not cap.err
+    
+    def test_merge(self):
+        with Capture(stdout=':memory:', stderr=':stdout:') as capture:
+            print('foo')
+            print('bar', file=sys.stderr)
+        
+        assert capture.out == 'foo\nbar\n'
+        assert not capture.err

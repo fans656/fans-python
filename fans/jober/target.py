@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Union, Callable, List, Iterable
 
 from fans.bunch import bunch
+from fans.jober.capture import Capture
 
 
 class Target:
@@ -62,13 +63,23 @@ class Target:
         """
         Availble options:
         
-            shell: bool - whether execute by shell (`Popen(shell=True)`)
             process: bool - whether execute callable target in process instead
+
+            stdout: str|None - stdout capture, see Capture
+            stderr: str|None - stderr capture, see Capture
+
+            shell: bool - argument for Popen, defaults to False
+            text: bool - argument for Popen, defaults to True
+            encoding: str - argument for Popen, defaults to 'utf-8'
+            bufsize: int - argument for Popen, defaults to 1
+            errors: str - argument for Popen, defaults to 'replace'
         """
         self.source = source
         self.args = args
         self.kwargs = kwargs
         self.options = options
+        
+        self.capture = None
 
     def __call__(self):
         raise NotImplementedError()
@@ -92,11 +103,12 @@ class Target:
         return Path(self.options.get('cwd') or os.getcwd()).expanduser()
     
     def _run_in_place(self, func):
-        return func(*self.args, **self.kwargs)
+        with (self.capture or Capture(**self.options)) as capture:
+            return func(*self.args, **self.kwargs)
 
     def _run_in_process(self, cmd: str|list[str]):
         options = self.options
-        with _Capture(options) as capture:
+        with (self.capture or Capture(**options)) as capture:
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(self.cwd),
@@ -272,52 +284,3 @@ def _reprint_proc_stdout(proc):
 def _serialize_converted(*data):
     text = base64.b64encode(pickle.dumps(data)).decode("utf-8")
     return f"pickle.loads(base64.b64decode('{text}'))"
-
-
-class _Capture:
-    
-    def __init__(self, options):
-        self.options = options
-        
-        self.popen_kwargs = {}
-
-        self.stdout_file = None
-        self.stderr_file = None
-        
-        self.should_consume_stdout = False
-    
-    def wait_process(self, proc):
-        if self.should_consume_stdout:
-            try:
-                for line in iter(proc.stdout.readline, ''):
-                    print(line, end='')
-            except KeyboardInterrupt:
-                pass
-
-        proc.wait()
-
-        return proc.returncode
-    
-    def __enter__(self):
-        stdout = self.options.get('stdout')
-        if stdout:
-            self.stdout_file = Path(stdout).open('w')
-            self.popen_kwargs['stdout'] = self.stdout_file
-        else:
-            self.popen_kwargs['stdout'] = subprocess.PIPE
-            self.should_consume_stdout = True
-        
-        stderr = self.options.get('stderr')
-        if stderr:
-            self.stderr_file = Path(stderr).open('w')
-            self.popen_kwargs['stderr'] = self.stdout_file
-        else:
-            self.popen_kwargs['stderr'] = subprocess.STDOUT
-        
-        return self
-    
-    def __exit__(self, *_, **__):
-        if self.stdout_file:
-            self.stdout_file.close()
-        if self.stderr_file:
-            self.stderr_file.close()

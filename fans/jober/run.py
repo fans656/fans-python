@@ -10,7 +10,7 @@ from fans.fn import noop
 
 from fans.jober.event import EventType, RunEventer
 from fans.jober.target import Target
-from fans.jober import util
+from fans.jober.capture import Capture
 
 
 logger = get_logger(__name__)
@@ -50,6 +50,7 @@ class Run:
 
         self._before_run = noop
         self._outputs = []
+        self._capture = Capture(stderr=':stdout:')
     
     def __call__(self):
         eventer = RunEventer(job_id=self.job_id, run_id=self.run_id, queue=self.get_events_queue())
@@ -57,10 +58,7 @@ class Run:
             eventer.begin()
             self.beg_time = time.time()
 
-            if self.capture:
-                output = _Output(eventer)
-                util.redirect_to(output)
-
+            self.target.capture = self._capture
             ret = self.target()
 
             if inspect.isgenerator(ret):
@@ -79,7 +77,8 @@ class Run:
 
     @property
     def output(self) -> str:
-        return ''.join(self._outputs)
+        return self._capture.out
+        #return ''.join(self._outputs)
 
     @property
     def finished(self):

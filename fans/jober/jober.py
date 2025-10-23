@@ -18,7 +18,7 @@ from fans.jober.sched import Sched
 from fans.jober.target import Target
 from fans.jober.job import Job
 from fans.jober.run import Run
-from fans.jober import util
+from fans.jober import capture
 
 
 logger = get_logger(__name__)
@@ -73,13 +73,13 @@ class Jober:
         if not self.started:
             self._sched.start()
             self._events_thread.start()
-            util.enable_proxy()
+            capture.enable_proxy()
             self.started = True
 
     def stop(self):
         if self.started:
             self._sched.stop()
-            util.disable_proxy()
+            capture.disable_proxy()
             self.started = False
     
     def wait(self, timeout: float = None):
