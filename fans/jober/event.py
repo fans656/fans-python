@@ -7,7 +7,6 @@ class EventType:
     job_run_begin = 'job_run_begin'
     job_run_done = 'job_run_done'
     job_run_error = 'job_run_error'
-    job_run_output = 'job_run_output'
 
 
 class RunEventer:
@@ -25,9 +24,6 @@ class RunEventer:
 
     def error(self):
         self.queue.put(self._event(EventType.job_run_error, trace=traceback.format_exc()))
-
-    def output(self, content):
-        self.queue.put(self._event(EventType.job_run_output, content=content))
 
     def _event(self, event_type, **data):
         return {

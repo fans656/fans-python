@@ -26,7 +26,8 @@ class Run:
         run_id,
         args=None,
         kwargs=None,
-        capture=None,
+        stdout: str = ':memory:',
+        stderr: str = ':stdout:',
     ):
         if args is not None or kwargs is not None:
             self.target = target.clone(args=args, kwargs=kwargs)
@@ -37,7 +38,6 @@ class Run:
         self.run_id = run_id
         self.args = args
         self.kwargs = kwargs
-        self.capture = capture
 
         self.status = 'init'
         self.beg_time = None
@@ -49,8 +49,7 @@ class Run:
         self.get_events_queue = noop
 
         self._before_run = noop
-        self._outputs = []
-        self._capture = Capture(stderr=':stdout:')
+        self._capture = Capture(stdout=stdout, stderr=stderr, should_enable_disable=False)
     
     def __call__(self):
         eventer = RunEventer(job_id=self.job_id, run_id=self.run_id, queue=self.get_events_queue())
@@ -78,7 +77,6 @@ class Run:
     @property
     def output(self) -> str:
         return self._capture.out
-        #return ''.join(self._outputs)
 
     @property
     def finished(self):
@@ -107,8 +105,6 @@ class Run:
             case EventType.job_run_error:
                 self.status = 'error'
                 self.trace = event.get('trace')
-            case EventType.job_run_output:
-                self._outputs.append(event['content'])
             case _:
                 logger.warning(f'invalid event: {event}')
 

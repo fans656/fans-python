@@ -29,6 +29,8 @@ class Job:
             max_recent_runs: int = 3,
             disabled: bool = False,
             volatile: bool = False,
+            stdout: str = ':memory:',
+            stderr: str = ':stdout:',
     ):
         self.target = target
         self.id = id or uuid.uuid4().hex
@@ -40,9 +42,10 @@ class Job:
         self.max_recent_runs = max_recent_runs
         self.disabled = disabled
         self.volatile = volatile
+        self.stdout = stdout
+        self.stderr = stderr
         
         self.get_events_queue = None
-        self.capture = None
 
         self._id_to_run = {}
         self._recent_runs = deque([])
@@ -116,7 +119,8 @@ class Job:
             run_id=run_id,
             args=args,
             kwargs=kwargs,
-            capture=self.capture,
+            stdout=self.stdout,
+            stderr=self.stderr,
         )
         run.get_events_queue = self.get_events_queue
 

@@ -9,10 +9,13 @@ import werkzeug.local
 
 class Capture:
 
+    _enabled = False
     _orig_stdout = sys.stdout
     _orig_stderr = sys.stderr
     _orig___stdout__ = sys.__stdout__
     _orig___stderr__ = sys.__stderr__
+    _stdout_targets = {}
+    _stderr_targets = {}
     
     def __init__(self, **options):
         """
@@ -118,19 +121,19 @@ class Capture:
     def __enter__(self):
         if not self._for_process:
             if self._should_enable_disable:
-                enable_proxy()
+                self.enable_proxy()
 
             if self.options['stdout'] == ':memory:':
                 self._should_collect_stdout = True
-                _redirect_to(_stdout_targets, self._stdout_output)
+                _redirect_to(Capture._stdout_targets, self._stdout_output)
                 self._stdout_redirected = True
             
             stderr = self.options['stderr']
             if stderr in (':memory:', ':stdout:'):
                 if stderr == ':memory:':
-                    _redirect_to(_stderr_targets, self._stderr_output)
+                    _redirect_to(Capture._stderr_targets, self._stderr_output)
                 elif stderr == ':stdout:':
-                    _redirect_to(_stderr_targets, self._stdout_output)
+                    _redirect_to(Capture._stderr_targets, self._stdout_output)
                 self._stderr_redirected = True
         
         return self
@@ -141,13 +144,35 @@ class Capture:
         if self.stderr_file:
             self.stderr_file.close()
         if self._stdout_redirected:
-            _redirect_to(_stdout_targets, None)
+            _redirect_to(Capture._stdout_targets, None)
         if self._stderr_redirected:
-            _redirect_to(_stderr_targets, None)
+            _redirect_to(Capture._stderr_targets, None)
 
         if not self._for_process:
             if self._should_enable_disable:
-                disable_proxy()
+                self.disable_proxy()
+
+    @staticmethod
+    def enable_proxy():
+        if not Capture._enabled:
+            Capture._orig_stdout = sys.stdout
+            Capture._orig_stderr = sys.stderr
+            Capture._orig___stdout__ = sys.__stdout__
+            Capture._orig___stderr__ = sys.__stderr__
+            sys.stdout = werkzeug.local.LocalProxy(_make_output_getter(Capture._stdout_targets, Capture._orig_stdout))
+            sys.stderr = werkzeug.local.LocalProxy(_make_output_getter(Capture._stderr_targets, Capture._orig_stderr))
+            sys.__stdout__ = werkzeug.local.LocalProxy(_make_output_getter(Capture._stdout_targets, Capture._orig___stdout__))
+            sys.__stderr__ = werkzeug.local.LocalProxy(_make_output_getter(Capture._stderr_targets, Capture._orig___stderr__))
+            Capture._enabled = True
+
+    @staticmethod
+    def disable_proxy():
+        if Capture._enabled:
+            sys.stdout = Capture._orig_stdout
+            sys.stderr = Capture._orig_stderr
+            sys.__stdout__ = Capture._orig___stdout__
+            sys.__stderr__ = Capture._orig___stderr__
+            Capture._enabled = False
 
 
 class _Output:
@@ -157,35 +182,6 @@ class _Output:
     
     def write(self, content: str):
         self.contents.append(content)
-
-
-_enabled = False
-_stdout_targets = {}
-_stderr_targets = {}
-
-
-def enable_proxy():
-    global _enabled
-    if not _enabled:
-        Capture._orig_stdout = sys.stdout
-        Capture._orig_stderr = sys.stderr
-        Capture._orig___stdout__ = sys.__stdout__
-        Capture._orig___stderr__ = sys.__stderr__
-        sys.stdout = werkzeug.local.LocalProxy(_make_output_getter(_stdout_targets, Capture._orig_stdout))
-        sys.stderr = werkzeug.local.LocalProxy(_make_output_getter(_stderr_targets, Capture._orig_stderr))
-        sys.__stdout__ = werkzeug.local.LocalProxy(_make_output_getter(_stdout_targets, Capture._orig___stdout__))
-        sys.__stderr__ = werkzeug.local.LocalProxy(_make_output_getter(_stderr_targets, Capture._orig___stderr__))
-        _enabled = True
-
-
-def disable_proxy():
-    global _enabled
-    if _enabled:
-        sys.stdout = Capture._orig_stdout
-        sys.stderr = Capture._orig_stderr
-        sys.__stdout__ = Capture._orig___stdout__
-        sys.__stderr__ = Capture._orig___stderr__
-        _enabled = False
 
 
 def _redirect_to(targets, output):

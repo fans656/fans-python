@@ -18,7 +18,7 @@ from fans.jober.sched import Sched
 from fans.jober.target import Target
 from fans.jober.job import Job
 from fans.jober.run import Run
-from fans.jober import capture
+from fans.jober.capture import Capture
 
 
 logger = get_logger(__name__)
@@ -28,7 +28,6 @@ class Jober:
     
     conf = {
         'conf_path': None,
-        'capture': 'memory',
         'n_thread_pool_workers': 32,
         'timezone': 'Asia/Shanghai',
         'max_recent_runs': 3,
@@ -73,13 +72,13 @@ class Jober:
         if not self.started:
             self._sched.start()
             self._events_thread.start()
-            capture.enable_proxy()
+            Capture.enable_proxy()
             self.started = True
 
     def stop(self):
         if self.started:
             self._sched.stop()
-            capture.disable_proxy()
+            Capture.disable_proxy()
             self.started = False
     
     def wait(self, timeout: float = None):
@@ -148,14 +147,9 @@ class Jober:
             args: tuple = (),
             kwargs: dict = {},
             *,
-            id: str = None,
-            name: str = None,
-            extra: any = None,
             cwd: str = None,
             shell: bool = False,
             process: bool = False,
-            stdout=None,
-            stderr=None,
             **job_kwargs,
     ) -> 'Job':
         """Make a job without adding to jober."""
@@ -166,21 +160,12 @@ class Jober:
             shell=shell,
             cwd=cwd,
             process=process,
-            stdout=stdout,
-            stderr=stderr,
         )
 
         job_kwargs.setdefault('max_recent_runs', self.conf.max_recent_runs)
 
-        job = Job(
-            target,
-            id=id,
-            name=name,
-            extra=extra,
-            **job_kwargs,
-        )
+        job = Job(target, **job_kwargs)
         job.get_events_queue = lambda: self._events_queue
-        job.capture = self.conf.capture
         return job
     
     def get_job(self, job_id: str) -> Optional[Job]:
