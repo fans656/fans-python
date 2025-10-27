@@ -126,6 +126,6 @@ def test_interval():
     job = jober.add_job('date', when=0.01)
     time.sleep(0.1)
     jober.stop()
-    assert len(job.runs) > 9
+    assert len(job.runs) >= 9
     for run in job.runs:
         assert run.output

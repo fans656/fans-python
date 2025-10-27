@@ -24,17 +24,17 @@ class Test_run:
     def test_run_id_and_job_id(self, conf, jober):
         """Get run ID and job ID"""
         job = jober.run_job(conf.target)
-        job = jober.get_job(job.job_id)
+        job = jober.get_job(job.id)
         assert job
 
     @parametrized()
     def test_remove_job(self, conf, jober):
         """Can remove existing job"""
-        run = jober.run_job(conf.target)
-        run.wait()
-        assert jober.get_job(run.job_id)
-        assert jober.remove_job(run.job_id)
-        assert not jober.get_job(run.job_id)
+        job = jober.run_job(conf.target)
+        job.wait()
+        assert jober.get_job(job.id)
+        assert jober.remove_job(job.id)
+        assert not jober.get_job(job.id)
 
     def test_listener(self, jober, mocker):
         """Can add/remove event listener"""

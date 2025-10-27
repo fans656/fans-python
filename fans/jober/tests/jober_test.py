@@ -73,10 +73,10 @@ class Test_remove:
     def test_not_removable_when_running(self, jober):
         job = jober.run_job('sleep 0.1')
         time.sleep(0.01)
-        assert not jober.remove_job(job.job_id)
+        assert not jober.remove_job(job.id)
         job.wait()
-        assert jober.remove_job(job.job_id)
-        assert not jober.get_job(job.job_id)
+        assert jober.remove_job(job.id)
+        assert not jober.get_job(job.id)
 
 
 class Test_run_status:

@@ -22,7 +22,8 @@ class Job:
 
     def __init__(
             self,
-            target: any,
+            target: any = noop,
+            *,
             id: str = None,
             name: str = None,
             extra: any = None,
@@ -35,9 +36,8 @@ class Job:
             on_event=noop,
     ):
         self.target = target
-        self.id = id or uuid.uuid4().hex
-        self.job_id = self.id
-        self.name = name
+        self.id = id or name or uuid.uuid4().hex
+        self.name = name or self.id
         self.extra = extra
         
         self.max_instances = max_instances
