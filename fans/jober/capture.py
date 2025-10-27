@@ -5,12 +5,12 @@ import subprocess
 import contextlib
 from pathlib import Path
 
-import werkzeug.local
+from werkzeug.local import LocalProxy
 
 
 class Capture:
     """
-    Sample usage:
+    Inplace capture:
     
         with Capture() as capture:
             print('foo')
@@ -19,106 +19,82 @@ class Capture:
         assert capture.out == 'foo\n'
         assert capture.err == 'bar\n'
     
-    for sub process:
+    sub process capture:
     
-        capture = Capture()
-        with capture.popen('echo foo && echo bar >&2', shell=True):
+        with Capture().popen('echo foo && echo bar >&2', shell=True) as capture:
             pass
         assert capture.out == 'foo\n'
         assert capture.err == 'bar\n'
+    
+    merge stderr into stdout:
+    
+        with Capture(stderr=':stdout:') as capture:
+            print('foo')
+            print('bar', file=sys.stderr)
+        
+        assert capture.out == 'foo\nbar\n'
+    
+   into file:
+    
+        with Capture(stdout='/tmp/out.log') as capture:
+            print('foo')
+        
+        assert capture.out_path.open().read() == 'foo\n'
     """
 
     _enabled = False
-    _orig_stdout = sys.stdout
-    _orig_stderr = sys.stderr
-    _orig___stdout__ = sys.__stdout__
-    _orig___stderr__ = sys.__stderr__
-    _stdout_targets = {}
-    _stderr_targets = {}
+    _sys_stdout = sys.stdout
+    _sys_stderr = sys.stderr
+    _sys__stdout__ = sys.__stdout__
+    _sys__stderr__ = sys.__stderr__
+    _outs = {}
+    _errs = {}
     
-    def __init__(self, **options):
+    def __init__(self, stdout=':memory:', stderr=':memory:', **options):
         """
         Options:
         
-            process: bool - whether for process capture, defaults to False
-        
-            stdout: str|None - defaults to ':memory:'
-                - if None, no capture will occur
+            stdout: str
+                - if None, no capture
                 - if ':memory:', capture into memory, accessible by `.out`
-                - other str is considered as file path
+                - other value is considered as file path
 
-            stderr: str|None - defaults to ':memory:'
-                - if None, no capture will occur
+            stderr: str
+                - if None, no capture
                 - if ':memory:', capture into memory, accessible by `.err`
                 - if ':stdout:', then same as stdout
-                - other str is considered as file path
+                - other value is considered as file path
         """
+        self.stdout = stdout
+        self.stderr = stderr
         self.options = options
-        self.options.setdefault('stdout', ':memory:')
-        self.options.setdefault('stderr', ':memory:')
 
         self.out_path = None
         self.err_path = None
         self.out_file = None
         self.err_file = None
         self.proc = None
-
-        self._should_enable_disable = options.get('should_enable_disable', True)
-        self._should_delete_proxy = options.get('should_delete_proxy', True)
-        self._should_collect_stdout = False
-        self._should_collect_stderr = False
-        
-        self._stdout_output = _Output()
-        self._stderr_output = _Output()
     
     @property
     def out(self) -> str:
         if self.out_path:
             with self.out_path.open() as f:
                 return f.read()
-        else:
-            return ''.join(self._stdout_output.contents)
+        elif self.out_file:
+            return self.out_file.read()
     
     @property
     def err(self) -> str:
         if self.err_path:
             with self.err_path.open() as f:
                 return f.read()
-        else:
-            return ''.join(self._stderr_output.contents)
+        elif self.err_file and self.err_file is not self.out_file:
+            return self.err_file.read()
     
     def popen(self, *args, **kwargs):
-        """
-        Create a sub process and capture its output.
-        
-        `args` and `kwargs` will be passed to `subprocess.Popen`, with `kwargs` updated if necessary.
-        """
-        stdout = self.options['stdout']
-        if stdout is None:
-            kwargs['stdout'] = None
-        elif stdout.startswith(':'):
-            if stdout == ':memory:':
-                kwargs['stdout'] = subprocess.PIPE
-                self._should_collect_stdout = True
-        else:
-            self.out_path = Path(stdout)
-            kwargs['stdout'] = self.out_file = self.out_path.open('w')
-        
-        stderr = self.options['stderr']
-        if stderr is None:
-            kwargs['stderr'] = None
-        elif stderr.startswith(':'):
-            if stderr == ':memory:':
-                kwargs['stderr'] = subprocess.PIPE
-                self._should_collect_stderr = True
-            elif stderr == ':stdout:':
-                kwargs['stderr'] = subprocess.STDOUT
-        else:
-            self.err_path = Path(stderr)
-            kwargs['stderr'] = self.err_file = self.err_path.open('w')
-
+        self.out_path, self.out_file = _setup_out(self.stdout, 'stdout', kwargs)
+        self.err_path, self.err_file = _setup_out(self.stderr, 'stderr', kwargs)
         self.proc = subprocess.Popen(*args, **kwargs)
-        
         return self
     
     def __enter__(self):
@@ -131,92 +107,79 @@ class Capture:
     
     @contextlib.contextmanager
     def _enterexit(self):
-        try:
-            out_redirected = err_redirected = False
-
+        with contextlib.ExitStack() as stack:
             if self.proc:
                 self._collect_outputs()
                 self.proc.wait()
             else:
-                if self._should_enable_disable:
-                    self.enable_proxy()
+                if self.options.get('should_enable_disable', True):
+                    stack.enter_context(_proxied())
 
-                if self.options['stdout'] == ':memory:':
-                    _redirect_to(Capture._stdout_targets, self._stdout_output)
-                    self._should_collect_stdout = True
-                    out_redirected = True
-                
-                stderr = self.options['stderr']
-                if stderr in (':memory:', ':stdout:'):
-                    if stderr == ':memory:':
-                        _redirect_to(Capture._stderr_targets, self._stderr_output)
-                        self._should_collect_stderr = True
-                    elif stderr == ':stdout:':
-                        _redirect_to(Capture._stderr_targets, self._stdout_output)
-                    err_redirected = True
+                self.out_path, self.out_file = _setup_out(self.stdout, 'stdout')
+                self.err_path, self.err_file = _setup_out(self.stderr, 'stderr')
+                if self.stderr == ':stdout:':
+                    self.err_file = self.out_file
+
+                stack.enter_context(_redirected(Capture._outs, self.out_file))
+                stack.enter_context(_redirected(Capture._errs, self.err_file))
+
+            stack.enter_context(_closing(self.out_file))
+            stack.enter_context(_closing(self.err_file))
 
             yield self
-
-        finally:
-            if self.out_file:
-                self.out_file.close()
-            if self.err_file:
-                self.err_file.close()
-            if out_redirected:
-                _redirect_to(Capture._stdout_targets, None)
-            if err_redirected:
-                _redirect_to(Capture._stderr_targets, None)
-
-            if not self.proc:
-                if self._should_enable_disable:
-                    self.disable_proxy()
     
     def _collect_outputs(self):
-        if self._should_collect_stdout or self._should_collect_stderr:
-            proc = self.proc
-            fds = []
-            fd_mapping = {}
-            
-            if self._should_collect_stdout:
-                fds.append(proc.stdout.fileno())
-                fd_mapping[proc.stdout.fileno()] = (proc.stdout, self._stdout_output)
-            if self._should_collect_stderr:
-                fds.append(proc.stderr.fileno())
-                fd_mapping[proc.stderr.fileno()] = (proc.stderr, self._stderr_output)
+        fds = []
+        fd_mapping = {}
+        
+        def setup_out(src, dst):
+            fileno = src.fileno()
+            fds.append(fileno)
+            fd_mapping[fileno] = (src, dst)
+        
+        if self.out_file and isinstance(self.out_file, _Output):
+            setup_out(self.proc.stdout, self.out_file)
+        if self.err_file and isinstance(self.err_file, _Output):
+            setup_out(self.proc.stderr, self.err_file)
 
-            try:
-                while fds:
-                    ready_fds, _, _ = select.select(fds, [], [])
-                    for fd in ready_fds:
-                        stream, output = fd_mapping[fd]
-                        line = stream.readline()
-                        if not line:
-                            fds.remove(fd)
-                            continue
-                        output.write(line)
-            except KeyboardInterrupt:
-                pass
+        try:
+            while fds:
+                for fd in select.select(fds, [], [])[0]:
+                    src, dst = fd_mapping[fd]
+                    line = src.readline()
+                    if not line:
+                        fds.remove(fd)
+                        continue
+                    dst.write(line)
+        except KeyboardInterrupt:
+            pass
 
     @staticmethod
     def enable_proxy():
         if not Capture._enabled:
-            Capture._orig_stdout = sys.stdout
-            Capture._orig_stderr = sys.stderr
-            Capture._orig___stdout__ = sys.__stdout__
-            Capture._orig___stderr__ = sys.__stderr__
-            sys.stdout = werkzeug.local.LocalProxy(_make_output_getter(Capture._stdout_targets, Capture._orig_stdout))
-            sys.stderr = werkzeug.local.LocalProxy(_make_output_getter(Capture._stderr_targets, Capture._orig_stderr))
-            sys.__stdout__ = werkzeug.local.LocalProxy(_make_output_getter(Capture._stdout_targets, Capture._orig___stdout__))
-            sys.__stderr__ = werkzeug.local.LocalProxy(_make_output_getter(Capture._stderr_targets, Capture._orig___stderr__))
+            # save original stdout/stderr
+            Capture._sys_stdout = sys.stdout
+            Capture._sys_stderr = sys.stderr
+            Capture._sys__stdout__ = sys.__stdout__
+            Capture._sys__stderr__ = sys.__stderr__
+
+            # replace with thread local proxies
+            sys.stdout = LocalProxy(lambda: Capture._outs.get(threading.get_ident(), Capture._sys_stdout))
+            sys.stderr = LocalProxy(lambda: Capture._errs.get(threading.get_ident(), Capture._sys_stderr))
+            sys.__stdout__ = LocalProxy(lambda: Capture._outs.get(threading.get_ident(), Capture._sys__stdout__))
+            sys.__stderr__ = LocalProxy(lambda: Capture._errs.get(threading.get_ident(), Capture._sys__stderr__))
+
             Capture._enabled = True
 
     @staticmethod
     def disable_proxy():
         if Capture._enabled:
-            sys.stdout = Capture._orig_stdout
-            sys.stderr = Capture._orig_stderr
-            sys.__stdout__ = Capture._orig___stdout__
-            sys.__stderr__ = Capture._orig___stderr__
+            # restore original stdout/stderr
+            sys.stdout = Capture._sys_stdout
+            sys.stderr = Capture._sys_stderr
+            sys.__stdout__ = Capture._sys__stdout__
+            sys.__stderr__ = Capture._sys__stderr__
+
             Capture._enabled = False
 
 
@@ -225,20 +188,54 @@ class _Output:
     def __init__(self):
         self.contents = []
     
+    def read(self):
+        return ''.join(self.contents)
+    
     def write(self, content: str):
         self.contents.append(content)
+    
+    def close(self):
+        pass
 
 
-def _redirect_to(targets, output):
-    """
-    `output` at minimal should have a `write` method taking a `str` argument
-    """
-    key = threading.get_ident()
-    if output:
-        targets[key] = output
+def _setup_out(out, name, kwargs={}):
+    out_file = None
+    out_path = None
+
+    if out is None:
+        kwargs[name] = None
+    elif out == ':memory:':
+        kwargs[name] = subprocess.PIPE
+        out_file = _Output()
+    elif out == ':stderr:':
+        kwargs[name] = subprocess.STDERR
+    elif out == ':stdout:':
+        kwargs[name] = subprocess.STDOUT
     else:
-        targets.pop(key, None)
+        out_path = Path(out)
+        kwargs[name] = out_file = out_path.open('w')
+    
+    return out_path, out_file
 
 
-def _make_output_getter(targets, default):
-    return lambda: targets.get(threading.get_ident(), default)
+@contextlib.contextmanager
+def _proxied():
+    Capture.enable_proxy()
+    yield
+    Capture.disable_proxy()
+
+
+@contextlib.contextmanager
+def _redirected(outs, out):
+    key = threading.get_ident()
+    if out:
+        outs[key] = out
+    yield
+    outs.pop(key, None)
+
+
+@contextlib.contextmanager
+def _closing(thing):
+    yield
+    if thing:
+        thing.close()
