@@ -45,13 +45,11 @@ class Test_run:
 
         jober.add_listener(listener)
 
-        jober.run_job(mocker.Mock())
-        jober.start()
-        jober.wait(0.01)
+        jober.run_job(mocker.Mock()).wait()
 
         assert events
         event_types = {event['type'] for event in events}
-        assert 'job_run_begin' in event_types
-        assert 'job_run_done' in event_types
+        assert 'running' in event_types
+        assert 'done' in event_types
 
         jober.remove_listener(listener)

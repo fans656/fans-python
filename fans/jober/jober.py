@@ -163,9 +163,10 @@ class Jober:
         )
 
         job_kwargs.setdefault('max_recent_runs', self.conf.max_recent_runs)
+        job_kwargs.setdefault('on_event', lambda event: self._events_queue.put(event))
 
         job = Job(target, **job_kwargs)
-        job.get_events_queue = lambda: self._events_queue
+
         return job
     
     def get_job(self, job_id: str) -> Optional[Job]:
@@ -234,17 +235,11 @@ class Jober:
         queue = self._events_queue
         while True:
             event = queue.get()
-            job_id = event['job_id']
-            job = self._id_to_job.get(job_id)
-            if job:
-                job._on_run_event(event)
-
-                # TODO: listener execution in dedicated thread?
-                for listener in self._listeners:
-                    try:
-                        listener(event)
-                    except:
-                        traceback.print_exc()
+            for listener in self._listeners:
+                try:
+                    listener(event)
+                except:
+                    traceback.print_exc()
     
     def _load_jobs_from_conf(self):
         for spec in self.conf.get('jobs', []):

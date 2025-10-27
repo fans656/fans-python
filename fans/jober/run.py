@@ -8,7 +8,6 @@ from typing import Callable, Optional
 from fans.logger import get_logger
 from fans.fn import noop
 
-from fans.jober.event import EventType, RunEventer
 from fans.jober.target import Target
 from fans.jober.capture import Capture
 
@@ -20,14 +19,15 @@ class Run:
 
     def __init__(
         self,
-        *,
         target,
-        job_id,
-        run_id,
+        *,
+        job_id=None,
+        run_id=None,
         args=None,
         kwargs=None,
         stdout: str = ':memory:',
         stderr: str = ':stdout:',
+        on_event=noop,
     ):
         if args is not None or kwargs is not None:
             self.target = target.clone(args=args, kwargs=kwargs)
@@ -38,6 +38,7 @@ class Run:
         self.run_id = run_id
         self.args = args
         self.kwargs = kwargs
+        self.on_event = on_event
 
         self.status = 'init'
         self.beg_time = None
@@ -46,33 +47,29 @@ class Run:
         self.result = None
         self.native_id = None  # apscheduler job id
 
-        self.get_events_queue = noop
-
         self._before_run = noop
         self._capture = Capture(stdout=stdout, stderr=stderr, should_enable_disable=False)
     
     def __call__(self):
-        eventer = RunEventer(job_id=self.job_id, run_id=self.run_id, queue=self.get_events_queue())
         try:
-            eventer.begin()
-            self.beg_time = time.time()
+            self._set_status('running')
 
             self.target.capture = self._capture
+
+            # call target
             ret = self.target()
 
+            # collect result
             if inspect.isgenerator(ret):
                 self.result = list(ret)
             else:
                 self.result = ret
             
-            eventer.done()
+            self._set_status('done')
 
             return ret
         except:
-            print(traceback.format_exc()) # output traceback in job run thread
-            eventer.error()
-        finally:
-            self.end_time = time.time()
+            self._set_status('error')
 
     @property
     def output(self) -> str:
@@ -95,18 +92,23 @@ class Run:
             'end_time': self.end_time,
         }
         return ret
+    
+    def _set_status(self, status):
+        if status == 'running':
+            self.beg_time = time.time()
+        elif status in ('error', 'done'):
+            if status == 'error':
+                self.trace = traceback.format_exc()
+            self.end_time = time.time()
 
-    def _on_run_event(self, event):
-        match event['type']:
-            case EventType.job_run_begin:
-                self.status = 'running'
-            case EventType.job_run_done:
-                self.status = 'done'
-            case EventType.job_run_error:
-                self.status = 'error'
-                self.trace = event.get('trace')
-            case _:
-                logger.warning(f'invalid event: {event}')
+        self.status = status
+        
+        self.on_event({
+            'type': status,
+            'time': time.time(),
+            'job_id': self.job_id,
+            'run_id': self.run_id,
+        })
 
 
 class DummyRun(Run):

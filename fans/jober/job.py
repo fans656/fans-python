@@ -5,6 +5,7 @@ import asyncio
 from collections import deque
 from typing import Iterable, Optional
 
+from fans.fn import noop
 from fans.logger import get_logger
 
 from .run import Run, DummyRun, dummy_run
@@ -31,6 +32,7 @@ class Job:
             volatile: bool = False,
             stdout: str = ':memory:',
             stderr: str = ':stdout:',
+            on_event=noop,
     ):
         self.target = target
         self.id = id or uuid.uuid4().hex
@@ -44,13 +46,10 @@ class Job:
         self.volatile = volatile
         self.stdout = stdout
         self.stderr = stderr
-        
-        self.get_events_queue = None
+        self.on_event = on_event
 
         self._id_to_run = {}
         self._recent_runs = deque([])
-        self._last_run_id = None
-        self._max_run_time = 0
     
     def __call__(self, args=None, kwargs=None):
         run = self.new_run(args=args, kwargs=kwargs)
@@ -99,7 +98,7 @@ class Job:
 
     @property
     def last_run(self):
-        return self.get_run(self._last_run_id) or dummy_run
+        return self._recent_runs and self._recent_runs[-1] or dummy_run
 
     @property
     def source(self) -> str:
@@ -112,42 +111,29 @@ class Job:
         if self.disabled:
             return DummyRun(job_id=self.id)
 
+        job_id = self.id
         run_id = uuid.uuid4().hex
         run = Run(
             target=self.target,
-            job_id=self.id,
+            job_id=job_id,
             run_id=run_id,
             args=args,
             kwargs=kwargs,
             stdout=self.stdout,
             stderr=self.stderr,
+            on_event=self.on_event,
         )
-        run.get_events_queue = self.get_events_queue
 
         self._id_to_run[run_id] = run
         self._recent_runs.append(run)
 
         self._clear_obsolete_runs()
-        
-        self._last_run_id = run_id
 
         return run
     
     def wait(self, interval=0.01):
         while self.last_run.status in ('init', 'running'):
             time.sleep(interval)
-
-    def _on_run_event(self, event):
-        run_id = event['run_id']
-
-        if run_id not in self._id_to_run:
-            return
-
-        if event['type'] == 'job_run_begin' and event['time'] > self._max_run_time:
-            self._last_run_id = run_id
-
-        run = self._id_to_run[run_id]
-        run._on_run_event(event)
     
     @property
     def _apscheduler_kwargs(self):
