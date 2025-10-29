@@ -96,9 +96,6 @@ def test_python_script_callable(jober):
 def test_run_callable_in_process(jober):
     job = jober.run_job(echo, kwargs={'show_pid': True}, process=True)
     job.wait()
-    assert job.last_run
-    print(job.last_run)
-    print(repr(job.last_run._capture.out))
     assert int(job.output) != os.getpid()
 
 

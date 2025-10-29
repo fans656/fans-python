@@ -2,6 +2,7 @@ import time
 import uuid
 import queue
 import logging
+import tempfile
 import traceback
 import threading
 import functools
@@ -28,6 +29,7 @@ class Jober:
     
     conf = {
         'conf_path': None,
+        'root': None,
         'n_thread_pool_workers': 32,
         'timezone': 'Asia/Shanghai',
         'max_recent_runs': 3,
@@ -164,6 +166,7 @@ class Jober:
 
         job_kwargs.setdefault('max_recent_runs', self.conf.max_recent_runs)
         job_kwargs.setdefault('on_event', lambda event: self._events_queue.put(event))
+        job_kwargs.setdefault('root_work_dir', self.work_dir)
 
         job = Job(target, **job_kwargs)
 
@@ -217,8 +220,19 @@ class Jober:
         listeners.discard(token)
         self._listeners = listeners
     
+    @property
+    def work_dir(self):
+        return Path(self.conf.root).expanduser()
+    
     def as_dict(self):
         return {**self.conf}
+    
+    def __enter__(self):
+        self.start()
+        return self
+    
+    def __exit__(self, *_, **__):
+        self.stop()
     
     def _schedule_job(self, job, when):
         if isinstance(when, (int, float)):
@@ -258,16 +272,20 @@ def _prepare_config(conf_path, conf: dict):
     if conf_path:
         conf['conf_path'] = conf_path
 
-    # set default for missing values
-    for key, value in Jober.conf.items():
-        conf.setdefault(key, value)
-
     # maybe load from file
     if conf.get('conf_path'):
         fpath = Path(conf['conf_path']).expanduser()
         logger.info(f"loading config from {fpath}")
         with fpath.open() as f:
             conf.update(yaml.safe_load(f) or {})
+
+    # set missing defaults
+    for key, value in Jober.conf.items():
+        conf.setdefault(key, value)
+    
+    # specialized defaults
+    if conf['root'] is None:
+        conf['root'] = tempfile.gettempdir()
 
     return bunch(conf)
 

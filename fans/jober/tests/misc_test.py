@@ -1,3 +1,4 @@
+import sys
 import time
 from pathlib import Path
 
@@ -53,3 +54,45 @@ def test_run_existing_job_with_modified_args(jober):
     time.sleep(0.01)
     job.wait()
     assert job.output == 'foo\nfoo\nfoo\n'
+
+
+class TestCapture:
+    
+    def test_file(self, tmp_path):
+        with Jober(root=tmp_path) as jober:
+            job = jober.run_job(self.func, capture='file')
+            job.wait()
+            with job.last_run.capture.out_path.open() as f:
+                assert f.read() == 'foo\nbar\n'
+    
+    def test_non_merged(self, tmp_path):
+        with Jober(root=tmp_path) as jober:
+            job = jober.run_job(self.func, capture='files')
+            job.wait()
+            with job.last_run.capture.out_path.open() as f:
+                assert f.read() == 'foo\n'
+            with job.last_run.capture.err_path.open() as f:
+                assert f.read() == 'bar\n'
+    
+    def test_multiple_runs(self, tmp_path):
+        with Jober(root=tmp_path) as jober:
+            job = jober.run_job(self.func, capture='file')
+            job.wait()
+            run1 = job.last_run
+
+            jober.run_job(job)
+            job.wait()
+            run2 = job.last_run
+            
+            assert len(list(job.runs)) == 2
+            assert run1 is not run2
+
+            with run1.capture.out_path.open() as f:
+                assert f.read() == 'foo\nbar\n'
+
+            with run2.capture.out_path.open() as f:
+                assert f.read() == 'foo\nbar\n'
+    
+    def func(self):
+        print('foo')
+        print('bar', file=sys.stderr)

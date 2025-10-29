@@ -2,10 +2,12 @@ import uuid
 import time
 import queue
 import asyncio
+import datetime
 from collections import deque
 from typing import Iterable, Optional
 
 from fans.fn import noop
+from fans.path import Path
 from fans.logger import get_logger
 
 from .run import Run, DummyRun, dummy_run
@@ -15,10 +17,6 @@ logger = get_logger(__name__)
 
 
 class Job:
-    
-    @staticmethod
-    def from_dict(spec: dict):
-        pass
 
     def __init__(
             self,
@@ -31,9 +29,11 @@ class Job:
             max_recent_runs: int = 3,
             disabled: bool = False,
             volatile: bool = False,
+            capture: str|tuple = 'default',
             stdout: str = ':memory:',
             stderr: str = ':stdout:',
             on_event=noop,
+            root_work_dir: Path = None,
     ):
         self.target = target
         self.id = id or name or uuid.uuid4().hex
@@ -44,9 +44,13 @@ class Job:
         self.max_recent_runs = max_recent_runs
         self.disabled = disabled
         self.volatile = volatile
-        self.stdout = stdout
-        self.stderr = stderr
+        self.capture = capture
         self.on_event = on_event
+
+        if root_work_dir:
+            self._work_dir = Path(root_work_dir / self.id)
+        else:
+            self._work_dir = None
 
         self._id_to_run = {}
         self._recent_runs = deque([])
@@ -112,15 +116,17 @@ class Job:
             return DummyRun(job_id=self.id)
 
         job_id = self.id
-        run_id = uuid.uuid4().hex
+        run_id = datetime.datetime.now().strftime('%Y-%m-%d_%H%M%S_%f')
+        stdout, stderr = _derive_stdout_stderr_from_capture(self.capture, work_dir=self._work_dir, run_id=run_id)
+        
         run = Run(
             target=self.target,
             job_id=job_id,
             run_id=run_id,
             args=args,
             kwargs=kwargs,
-            stdout=self.stdout,
-            stderr=self.stderr,
+            stdout=stdout,
+            stderr=stderr,
             on_event=self.on_event,
         )
 
@@ -146,3 +152,23 @@ class Job:
         while len(self._recent_runs) > self.max_recent_runs:
             run = self._recent_runs.popleft()
             del self._id_to_run[run.run_id]
+    
+
+def _derive_stdout_stderr_from_capture(capture, *, work_dir, run_id):
+    if capture is None:
+        return None, None
+    elif isinstance(capture, str):
+        if capture == 'default':
+            return ':memory:', ':stdout:'
+        elif capture.startswith('file'):
+            work_dir.ensure_dir()
+            run_dir = work_dir / 'runs' / run_id
+            run_dir.ensure_dir()
+            if capture == 'file':
+                return str(run_dir / 'out.log'), ':stdout:'
+            elif capture == 'files':
+                return str(run_dir / 'out.log'), str(run_dir / 'err.log')
+    elif isinstance(capture, (tuple, list)):
+        return capture[:2]
+
+    raise ValueError(f'invalid capture: {capture}')

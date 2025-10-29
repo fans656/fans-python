@@ -48,13 +48,13 @@ class Run:
         self.native_id = None  # apscheduler job id
 
         self._before_run = noop
-        self._capture = Capture(stdout=stdout, stderr=stderr, should_enable_disable=False)
+        self.capture = Capture(stdout=stdout, stderr=stderr, should_enable_disable=False)
     
     def __call__(self):
         try:
             self._set_status('running')
 
-            self.target.capture = self._capture
+            self.target.capture = self.capture
 
             # call target
             ret = self.target()
@@ -73,7 +73,7 @@ class Run:
 
     @property
     def output(self) -> str:
-        return self._capture.out
+        return self.capture.out
 
     @property
     def finished(self):
