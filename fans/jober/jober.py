@@ -33,6 +33,7 @@ class Jober:
         'n_thread_pool_workers': 32,
         'timezone': 'Asia/Shanghai',
         'max_recent_runs': 3,
+        'capture': 'default',
         'jobs': [],
     }
 
@@ -167,6 +168,7 @@ class Jober:
         job_kwargs.setdefault('max_recent_runs', self.conf.max_recent_runs)
         job_kwargs.setdefault('on_event', lambda event: self._events_queue.put(event))
         job_kwargs.setdefault('root_work_dir', self.work_dir)
+        job_kwargs.setdefault('capture', self.conf.capture)
 
         job = Job(target, **job_kwargs)
 
