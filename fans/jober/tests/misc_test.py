@@ -93,6 +93,13 @@ class TestCapture:
             with run2.capture.out_path.open() as f:
                 assert f.read() == 'foo\nbar\n'
     
+    def test_multiple_runs(self, tmp_path):
+        with Jober(root=tmp_path, max_recent_runs=2) as jober:
+            job = jober.add_job(self.func, capture='file')
+            for _ in range(5):
+                jober.run_job(job).wait()
+                assert len(list(job.runs_dir.iterdir())) <= 2
+    
     def func(self):
         print('foo')
         print('bar', file=sys.stderr)

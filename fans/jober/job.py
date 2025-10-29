@@ -1,6 +1,7 @@
 import uuid
 import time
 import queue
+import shutil
 import asyncio
 import datetime
 from collections import deque
@@ -29,9 +30,7 @@ class Job:
             max_recent_runs: int = 3,
             disabled: bool = False,
             volatile: bool = False,
-            capture: str|tuple = 'default',
-            stdout: str = ':memory:',
-            stderr: str = ':stdout:',
+            capture: str|tuple[str,str] = 'default',
             on_event=noop,
             root_work_dir: Path = None,
     ):
@@ -108,6 +107,10 @@ class Job:
     def source(self) -> str:
         return self.target.source
     
+    @property
+    def runs_dir(self):
+        return self._work_dir / 'runs' if self._work_dir else None
+    
     def get_run(self, run_id: str) -> Optional[Run]:
         return self._id_to_run.get(run_id)
 
@@ -133,7 +136,7 @@ class Job:
         self._id_to_run[run_id] = run
         self._recent_runs.append(run)
 
-        self._clear_obsolete_runs()
+        self._prune_obsolete_runs()
 
         return run
     
@@ -148,10 +151,15 @@ class Job:
         }
         return ret
     
-    def _clear_obsolete_runs(self):
+    def _prune_obsolete_runs(self):
         while len(self._recent_runs) > self.max_recent_runs:
             run = self._recent_runs.popleft()
             del self._id_to_run[run.run_id]
+        
+        if self._work_dir and self.runs_dir.exists():
+            run_dirs = sorted(list(self.runs_dir.iterdir()))
+            for run_dir in run_dirs[:-self.max_recent_runs]:
+                shutil.rmtree(run_dir)
     
 
 def _derive_stdout_stderr_from_capture(capture, *, work_dir, run_id):
