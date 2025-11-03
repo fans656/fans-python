@@ -81,27 +81,19 @@ class Capture:
     
     @property
     def out_str(self) -> str:
-        if self.out_path:
-            with self.out_path.open() as f:
-                return f.read()
-        elif self.out_file:
-            return self.out_file.read()
+        return self.out.read()
     
     @property
     def err_str(self) -> str:
-        if self.err_path:
-            with self.err_path.open() as f:
-                return f.read()
-        elif self.err_file and self.err_file is not self.out_file:
-            return self.err_file.read()
+        return self.err.read()
     
     @property
     def out(self):
-        return _OutWrapper(self, lambda: getattr(self, 'out_path'), lambda: getattr(self, 'out_file'))
+        return _OutAccessor(self, lambda: getattr(self, 'out_path'))
     
     @property
     def err(self):
-        return _OutWrapper(self, lambda: getattr(self, 'err_path'), lambda: getattr(self, 'err_file'))
+        return _OutAccessor(self, lambda: getattr(self, 'err_path'))
     
     def popen(self, *args, **kwargs):
         self.out_path, self.out_file = _setup_out(self.stdout, 'stdout', kwargs)
@@ -153,9 +145,9 @@ class Capture:
             fds.append(fileno)
             fd_mapping[fileno] = (src, dst)
         
-        if self.out_file and isinstance(self.out_file, _Output):
+        if self.out_file and isinstance(self.out_file, _MemoryOut):
             setup_out(self.proc.stdout, self.out_file)
-        if self.err_file and isinstance(self.err_file, _Output):
+        if self.err_file and isinstance(self.err_file, _MemoryOut):
             setup_out(self.proc.stderr, self.err_file)
 
         try:
@@ -199,52 +191,82 @@ class Capture:
             Capture._enabled = False
 
 
-class _Output:
+class _MemoryPath:
     
-    def __init__(self, contents=None):
-        self.contents = contents or []
+    def __init__(self):
+        self._file = _MemoryOut()
+    
+    def open(self):
+        return self._file.clone()
+
+
+class _MemoryOut:
+    
+    def __init__(self, lines=None):
+        self._lines = lines or []
+        self._trailing = None
+
+        self._i_line = 0
     
     def read(self):
-        return ''.join(self.contents)
+        return ''.join(self._lines)
     
     def write(self, content: str):
-        self.contents.append(content)
+        if not content:
+            return
+
+        lines = content.splitlines(keepends=True)
+
+        if lines and self._trailing:
+            line, lines = lines[0], lines[1:]
+            self._trailing += line
+            if self._trailing.endswith('\n'):
+                self._lines.append(self._trailing)
+                self._trailing = None
+
+        self._lines.extend(lines)
+        
+        if self._lines and not self._lines[-1].endswith('\n'):
+            self._trailing = self._lines.pop()
     
     def close(self):
         pass
     
     async def readline(self):
-        self._lines = self.read().split('\n')[:-1]
-        if self._i_line >= len(self._lines):
-            return None
-        line = self._lines[self._i_line]
-        self._i_line += 1
-        return line + '\n'
+        if self._i_line < len(self._lines):
+            line = self._lines[self._i_line]
+            self._i_line += 1
+            return line
     
-    def _as_readable_file(self):
-        ret = _Output(self.contents)
-        ret._prepare_read()
-        return ret
+    def clone(self):
+        return _MemoryOut(self._lines)
     
-    def _prepare_read(self):
-        self._lines = self.read().split('\n')
-        self._i_line = 0
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *_, **__):
+        self.close()
 
 
-class _OutWrapper:
+class _OutAccessor:
     
-    def __init__(self, capture, get_out_path, get_out_file):
-        self.capture = capture
-        self.get_out_path = get_out_path
-        self.get_out_file = get_out_file
+    def __init__(self, capture, get_path):
+        self._capture = capture
+        self._get_path = get_path
+    
+    def read(self):
+        path = self._get_path()
+        if path:
+            with path.open() as f:
+                return f.read()
 
     async def iter_async(self, follow: bool = False):
-        async with self._use_out_file_async(follow=follow) as f:
+        async with self._open_async(follow=follow) as f:
             if not f:
                 return
 
             if follow:
-                prev_capturing = self.capture._capturing
+                prev_capturing = self._capture._capturing
 
                 while True:
                     line = await f.readline()
@@ -253,34 +275,24 @@ class _OutWrapper:
                     else:
                         await asyncio.sleep(0.01)
 
-                    if prev_capturing and not self.capture._capturing:
+                    if prev_capturing and not self._capture._capturing:
                         break
             else:
                 async for line in f:
                     yield line
     
-    @property
-    def out_path(self):
-        return self.get_out_path()
-    
-    @property
-    def out_file(self):
-        return self.get_out_file()
-    
     @contextlib.asynccontextmanager
-    async def _use_out_file_async(self, follow: bool = False):
+    async def _open_async(self, follow: bool = False):
         while True:
-            yielded = True
-
-            if self.out_path:
-                async with aiofiles.open(self.out_path) as f:
-                    yield f
-            elif self.out_file:
-                yield self.out_file._as_readable_file()
-            else:
-                yielded = False
-            
-            if follow and not yielded:
+            path = self._get_path()
+            if path:
+                if isinstance(path, _MemoryPath):
+                    with path.open() as f:
+                        yield f
+                else:
+                    async with aiofiles.open(path) as f:
+                        yield f
+            elif follow:
                 await asyncio.sleep(0.01)
                 continue
 
@@ -295,7 +307,8 @@ def _setup_out(out, name, kwargs={}):
         kwargs[name] = None
     elif out == ':memory:':
         kwargs[name] = subprocess.PIPE
-        out_file = _Output()
+        out_path = _MemoryPath()
+        out_file = out_path._file
     elif out == ':stderr:':
         kwargs[name] = subprocess.STDERR
     elif out == ':stdout:':
