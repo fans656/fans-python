@@ -1,3 +1,4 @@
+import sys
 import time
 import json
 import threading
@@ -29,12 +30,12 @@ async def async_client() -> AsyncTestClient:
 
 @pytest.fixture
 def jober():
-    with use_instance() as jober:
+    with use_jober() as jober:
         yield jober
 
 
 @contextlib.contextmanager
-def use_instance(**conf):
+def use_jober(**conf):
     jober = Jober(**conf)
     Jober._instance = jober
     jober.start()
@@ -99,7 +100,7 @@ class Test_get_jober:
         with conf_path.open('w') as f:
             yaml.dump({}, f)
 
-        with use_instance(**{'conf_path': conf_path}):
+        with use_jober(**{'conf_path': conf_path}):
             data = client.get('/api/get-jober').json()
             
             # can get conf path
@@ -130,8 +131,41 @@ class Test_run_job:
 class Test_logs:
     
     @pytest.mark.parametrize('capture', ['default', 'file'])
+    async def test_head_tail(self, capture, client, tmp_path):
+        with use_jober(root=tmp_path) as jober:
+
+            def func():
+                for i in range(3):
+                    print(i)
+
+            job = jober.run_job(func, capture=capture)
+
+            assert client.get("/api/logs", params={
+                'job_id': job.id,
+                'head': 2,
+            }).text == '0\n1\n'
+
+            assert client.get("/api/logs", params={
+                'job_id': job.id,
+                'head': 999,
+            }).text == '0\n1\n2\n'
+
+            assert client.get("/api/logs", params={
+                'job_id': job.id,
+                'tail': 2,
+            }).text == '1\n2\n'
+
+            assert client.get("/api/logs", params={
+                'job_id': job.id,
+                'tail': 999,
+            }).text == '0\n1\n2\n'
+
+
+class Test_logs_follow:
+    
+    @pytest.mark.parametrize('capture', ['default', 'file'])
     async def test_follow(self, capture, async_client, tmp_path):
-        with use_instance(root=tmp_path) as jober:
+        with use_jober(root=tmp_path) as jober:
             controller = threading.Event()
             
             def func():
@@ -163,3 +197,66 @@ class Test_logs:
             line = chunk.decode()
             if line.startswith('data:'):
                 yield json.loads(line[5:].strip())
+    
+    async def test_follow_stderr(self, async_client, tmp_path):
+        with use_jober(root=tmp_path) as jober:
+            def func():
+                print('foo')
+                print('bar', file=sys.stderr)
+
+            job = jober.run_job(func, capture=[':memory:', ':memory:'])
+            
+            resp = await async_client.get("/api/logs", query_string={
+                'job_id': job.id,
+                'follow': True,
+            }, stream=True)
+            events = self.events(resp)
+            assert (await anext(events))['line'] == 'foo\n'
+            
+            run = job.last_run
+            resp = await async_client.get("/api/logs", query_string={
+                'job_id': job.id,
+                'follow': True,
+                'stderr': True,
+            }, stream=True)
+            events = self.events(resp)
+            assert (await anext(events))['line'] == 'bar\n'
+    
+    @pytest.mark.parametrize('capture', ['default', 'file'])
+    async def test_tail(self, capture, async_client, tmp_path):
+        with use_jober(root=tmp_path) as jober:
+            controller = threading.Event()
+            
+            def func():
+                for i in range(6):
+                    print(i)
+                    controller.wait()
+                    controller.clear()
+
+            job = jober.run_job(func, capture=capture)
+            
+            controller.set()  # out 1
+            time.sleep(0.01)
+            controller.set()  # out 2
+            time.sleep(0.01)
+            controller.set()  # out 3
+            time.sleep(0.01)
+            
+            resp = await async_client.get("/api/logs", query_string={
+                'job_id': job.id,
+                'follow': True,
+                'tail': 2,
+            }, stream=True)
+
+            events = self.events(resp)
+            
+            assert (await anext(events))['line'] == '2\n'
+            assert (await anext(events))['line'] == '3\n'
+
+            controller.set()  # out 4
+            assert (await anext(events))['line'] == '4\n'
+
+            controller.set()  # out 5
+            assert (await anext(events))['line'] == '5\n'
+
+            controller.set()

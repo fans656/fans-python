@@ -1,8 +1,9 @@
 import json
 import asyncio
+from collections import deque
 from typing import Optional, Any
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, Response, HTTPException
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel, Field, create_model
 
@@ -60,8 +61,10 @@ async def get_jober_():
 async def logs_(
     job_id: str,
     run_id: str = None,
-    tail: int = 50,
+    head: int = None,
+    tail: int = 30,
     follow: bool = False,
+    stderr: bool = False,
     until_run: bool = True,
     request: Request = ...,
 ):
@@ -70,23 +73,41 @@ async def logs_(
     Params:
         job_id - Job's ID
         run_id - Run's ID, defaults to last run
+        head - If specified, only show lines at head
         tail - Number of lines to get at tail
         follow - Whether to follow in real time
+        stderr - Show stderr instead of stdout
     """
+    job = _get_job(job_id)
+    get_run = lambda: job.get_run(run_id) if run_id else job.last_run
+    run = await _until(get_run) if until_run else get_run()
+    if not run:
+        raise HTTPException(404, 'no run')
+
+    out = run.capture.err if stderr else run.capture.out
+
     if follow:
-        job = _get_job(job_id)
-        get_run = lambda: job.get_run(run_id) if run_id else job.last_run
-        run = await _until(get_run) if until_run else get_run()
-        if not run:
-            raise HTTPException(404, 'no run')
-        
         async def gen():
-            async for line in run.capture.out.iter_async(follow=True):
-                yield {'data': json.dumps({'line': line})}
-        
+            async with out.open_async() as f:
+                if tail:
+                    lines = deque([], tail)
+                    async for line in out.iter_async(f, nowait=True):
+                        lines.append(line)
+                    for line in lines:
+                        yield {'data': json.dumps({'line': line})}
+
+                async for line in out.iter_async(f):
+                    yield {'data': json.dumps({'line': line})}
+
         return EventSourceResponse(gen())
     else:
-        raise HTTPException(500, 'to be implemented')
+        if head:
+            text = out.read(head=head)
+        elif tail:
+            text = out.read(tail=tail)
+        else:
+            raise HTTPException(500, 'to be implemented')
+        return Response(text, media_type='text/plain')
 
 
 @app.get('/events')

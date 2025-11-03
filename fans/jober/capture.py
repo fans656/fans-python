@@ -5,6 +5,7 @@ import threading
 import subprocess
 import contextlib
 from pathlib import Path
+from collections import deque
 
 import aiofiles
 from werkzeug.local import LocalProxy
@@ -231,12 +232,15 @@ class _MemoryOut:
     
     def close(self):
         pass
-    
-    async def readline(self):
+
+    def readline(self):
         if self._i_line < len(self._lines):
             line = self._lines[self._i_line]
             self._i_line += 1
             return line
+    
+    async def readline_async(self):
+        return self.readline()
     
     def clone(self):
         return _MemoryOut(self._lines)
@@ -254,49 +258,65 @@ class _OutAccessor:
         self._capture = capture
         self._get_path = get_path
     
-    def read(self):
+    def read(self, head: int = None, tail: int = None):
         path = self._get_path()
         if path:
             with path.open() as f:
-                return f.read()
+                if head:
+                    lines = []
+                    for _ in range(head):
+                        line = f.readline()
+                        if not line:
+                            break
+                        lines.append(line)
+                    return ''.join(lines)
+                elif tail:
+                    lines = deque([], tail)
+                    while True:
+                        line = f.readline()
+                        if not line:
+                            break
+                        lines.append(line)
+                    return ''.join(lines)
+                else:
+                    return f.read()
+    
+    async def iter_async(self, f, nowait: bool = False):
+        prev_capturing = self._capture._capturing
+        
+        if hasattr(f, 'readline_async'):
+            async def readline():
+                return await f.readline_async()
+        else:
+            async def readline():
+                return await f.readline()
 
-    async def iter_async(self, follow: bool = False):
-        async with self._open_async(follow=follow) as f:
-            if not f:
-                return
-
-            if follow:
-                prev_capturing = self._capture._capturing
-
-                while True:
-                    line = await f.readline()
-                    if line:
-                        yield line
-                    else:
-                        await asyncio.sleep(0.01)
-
-                    if prev_capturing and not self._capture._capturing:
-                        break
+        while True:
+            line = await readline()
+            if line:
+                yield line
+            elif nowait:
+                break
             else:
-                async for line in f:
-                    yield line
+                await asyncio.sleep(0.01)
+
+            if prev_capturing and not self._capture._capturing:
+                break
     
     @contextlib.asynccontextmanager
-    async def _open_async(self, follow: bool = False):
+    async def open_async(self):
         while True:
             path = self._get_path()
             if path:
                 if isinstance(path, _MemoryPath):
                     with path.open() as f:
                         yield f
+                        return
                 else:
                     async with aiofiles.open(path) as f:
                         yield f
-            elif follow:
-                await asyncio.sleep(0.01)
-                continue
-
-            break
+                        return
+            await asyncio.sleep(0.01)
 
 
 def _setup_out(out, name, kwargs={}):
