@@ -1,4 +1,6 @@
 import sys
+import time
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -34,8 +36,8 @@ def test_capture(mode, stdout, stderr, capfd, tmp_path):
     if stderr == ':stdout:':
         out_content = 'foo\nbar\n'
         if stdout is not None:
-            assert capture.out == out_content
-            assert not capture.err
+            assert capture.out_str == out_content
+            assert not capture.err_str
             if stdout == 'file':
                 with stdout_fpath.open() as f:
                     assert f.read() == out_content
@@ -45,25 +47,25 @@ def test_capture(mode, stdout, stderr, capfd, tmp_path):
         cap = capfd.readouterr()
 
         if stdout is None:
-            assert not capture.out
+            assert not capture.out_str
             assert cap.out == out_content
         elif stdout == ':memory:':
-            assert capture.out == out_content
+            assert capture.out_str == out_content
             assert not cap.out
         elif stdout == 'file':
-            assert capture.out == out_content
+            assert capture.out_str == out_content
             with stdout_fpath.open() as f:
                 assert f.read() == out_content
             assert not cap.out
 
         if stderr is None:
-            assert not capture.err
+            assert not capture.err_str
             assert cap.err == err_content
         elif stderr == ':memory:':
-            assert capture.err == err_content
+            assert capture.err_str == err_content
             assert not cap.err
         elif stderr == 'file':
-            assert capture.err == err_content
+            assert capture.err_str == err_content
             with stderr_fpath.open() as f:
                 assert f.read() == err_content
             assert not cap.err

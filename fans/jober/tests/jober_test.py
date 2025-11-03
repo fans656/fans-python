@@ -100,7 +100,7 @@ def test_conf_level_capture(tmp_path):
     with Jober(capture='default', root=tmp_path) as jober:
         job = jober.run_job(func)
         job.wait()
-        assert job.last_run.capture.out == 'foo\n'
+        assert job.last_run.capture.out_str == 'foo\n'
         assert not job.last_run.capture.out_path
 
     with Jober(capture='file', root=tmp_path) as jober:

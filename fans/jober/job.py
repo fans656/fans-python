@@ -64,6 +64,9 @@ class Job:
     def enable(self):
         self.disabled = False
     
+    def get_run(self, run_id: str):
+        return self._id_to_run.get(run_id)
+    
     def as_dict(self):
         return {
             'id': self.id,
@@ -163,7 +166,7 @@ class Job:
     
 
 def _derive_stdout_stderr_from_capture(capture, *, work_dir, run_id):
-    if capture is None:
+    if capture in (None, False):
         return None, None
     elif isinstance(capture, str):
         if capture == 'default':

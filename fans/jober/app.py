@@ -1,6 +1,8 @@
+import json
+import asyncio
 from typing import Optional, Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel, Field, create_model
 
@@ -17,7 +19,7 @@ def paginated_response(item_model):
     )
 
 
-@app.get('/list-jobs', response_model=paginated_response(create_model('Job', **{
+@app.get('/jobs', response_model=paginated_response(create_model('Job', **{
     'id': (str, Field()),
     'name': (Optional[str], Field(default=None)),
     'extra': (Optional[Any], Field(default=None)),
@@ -28,7 +30,7 @@ async def list_jobs_():
     return {'data': data}
 
 
-@app.get('/list-runs')
+@app.get('/runs')
 async def list_runs_(job_id: str):
     """List runs of given job"""
     job = _get_job(job_id)
@@ -55,9 +57,36 @@ async def get_jober_():
 
 
 @app.get('/logs')
-async def logs_(request: Request):
-    """Subscribe to run logs"""
-    pass
+async def logs_(
+    job_id: str,
+    run_id: str = None,
+    tail: int = 50,
+    follow: bool = False,
+    until_run: bool = True,
+    request: Request = ...,
+):
+    """Subscribe to run logs
+    
+    Params:
+        job_id - Job's ID
+        run_id - Run's ID, defaults to last run
+        tail - Number of lines to get at tail
+        follow - Whether to follow in real time
+    """
+    if follow:
+        job = _get_job(job_id)
+        get_run = lambda: job.get_run(run_id) if run_id else job.last_run
+        run = await _until(get_run) if until_run else get_run()
+        if not run:
+            raise HTTPException(404, 'no run')
+        
+        async def gen():
+            async for line in run.capture.out.iter_async(follow=True):
+                yield {'data': json.dumps({'line': line})}
+        
+        return EventSourceResponse(gen())
+    else:
+        raise HTTPException(500, 'to be implemented')
 
 
 @app.get('/events')
@@ -71,17 +100,15 @@ async def events_(request: Request):
     return EventSourceResponse(gen())
 
 
-class RunJobRequest(BaseModel):
-    
-    job_id: str = Field()
-
-
 @app.post('/run-job')
-async def run_job_(req: RunJobRequest):
+async def run_job_(req: dict):
     """Run a job"""
     jober = Jober.get_instance()
-    job = jober.get_job(req.job_id)
-    jober.run_job(job)
+    if req.get('job_id'):
+        job = jober.get_job(req['job_id'])
+        jober.run_job(job)
+    else:
+        jober.run_job(**req)
 
 
 class StopJobRequest(BaseModel):
@@ -108,6 +135,14 @@ def _get_job(job_id: str):
     if not job:
         raise HTTPException(404, f'no job with id {job_id}')
     return job
+
+
+async def _until(pred, *, interval=0.01):
+    while True:
+        ret = pred()
+        if ret:
+            return ret
+        await asyncio.sleep(interval)
 
 
 root_app = FastAPI(title='fans.jober')

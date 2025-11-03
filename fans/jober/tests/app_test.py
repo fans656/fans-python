@@ -1,4 +1,6 @@
 import time
+import json
+import threading
 import contextlib
 
 import yaml
@@ -6,6 +8,9 @@ import pytest
 from starlette.testclient import TestClient
 from fans.bunch import bunch
 from fans.fn import noop
+from async_asgi_testclient import TestClient as AsyncTestClient
+import pytest
+import pytest_asyncio
 
 from fans.jober.app import root_app
 from fans.jober.jober import Jober
@@ -16,6 +21,12 @@ def client():
     yield TestClient(root_app)
 
 
+@pytest_asyncio.fixture
+async def async_client() -> AsyncTestClient:
+    async with AsyncTestClient(root_app) as client:
+        yield client
+
+
 @pytest.fixture
 def jober():
     with use_instance() as jober:
@@ -23,7 +34,7 @@ def jober():
 
 
 @contextlib.contextmanager
-def use_instance(conf: bunch = {}):
+def use_instance(**conf):
     jober = Jober(**conf)
     Jober._instance = jober
     jober.start()
@@ -35,13 +46,13 @@ def use_instance(conf: bunch = {}):
 class Test_list_jobs:
 
     def test_empty_jobs_by_default(self, client):
-        assert client.get('/api/list-jobs').json()['data'] == []
+        assert client.get('/api/jobs').json()['data'] == []
     
     def test_list_jobs(self, jober, client):
         jober.add_job(noop)
         jober.add_job(noop)
 
-        jobs = client.get('/api/list-jobs').json()['data']
+        jobs = client.get('/api/jobs').json()['data']
 
         assert len(jobs) == 2
         for job in jobs:
@@ -68,7 +79,7 @@ class Test_list_runs:
         jober.run_job(job).wait()
         jober.run_job(job).wait()
 
-        runs = client.get('/api/list-runs', params={
+        runs = client.get('/api/runs', params={
             'job_id': job.id,
         }).json()['data']
 
@@ -88,7 +99,7 @@ class Test_get_jober:
         with conf_path.open('w') as f:
             yaml.dump({}, f)
 
-        with use_instance({'conf_path': conf_path}):
+        with use_instance(**{'conf_path': conf_path}):
             data = client.get('/api/get-jober').json()
             
             # can get conf path
@@ -114,3 +125,41 @@ class Test_run_job:
 
         time.sleep(0.01)
         func.assert_called()
+
+
+class Test_logs:
+    
+    @pytest.mark.parametrize('capture', ['default', 'file'])
+    async def test_follow(self, capture, async_client, tmp_path):
+        with use_instance(root=tmp_path) as jober:
+            controller = threading.Event()
+            
+            def func():
+                for i in range(3):
+                    print(f'foo-{i}')
+                    controller.wait()
+                    controller.clear()
+
+            job = jober.run_job(func, capture=capture)
+            
+            resp = await async_client.get("/api/logs", query_string={
+                'job_id': job.id,
+                'follow': True,
+            }, stream=True)
+
+            events = self.events(resp)
+            
+            assert (await anext(events))['line'] == 'foo-0\n'
+            controller.set()
+
+            assert (await anext(events))['line'] == 'foo-1\n'
+            controller.set()
+
+            assert (await anext(events))['line'] == 'foo-2\n'
+            controller.set()
+    
+    async def events(self, resp):
+        async for chunk in resp.iter_content(chunk_size=None):
+            line = chunk.decode()
+            if line.startswith('data:'):
+                yield json.loads(line[5:].strip())

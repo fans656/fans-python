@@ -110,7 +110,7 @@ class Jober:
             job = jober.get_job('<job_id>')
             jober.run_job(job)
         """
-        if isinstance(_args[0], Job):
+        if _args and isinstance(_args[0], Job):
             job = _args[0]
             run_args = _kwargs.get('args')
             run_kwargs = _kwargs.get('kwargs')

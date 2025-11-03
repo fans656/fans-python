@@ -1,10 +1,12 @@
 import sys
 import select
+import asyncio
 import threading
 import subprocess
 import contextlib
 from pathlib import Path
 
+import aiofiles
 from werkzeug.local import LocalProxy
 
 
@@ -16,15 +18,15 @@ class Capture:
             print('foo')
             print('bar', file=sys.stderr)
         
-        assert capture.out == 'foo\n'
-        assert capture.err == 'bar\n'
+        assert capture.out_str == 'foo\n'
+        assert capture.err_str == 'bar\n'
     
     sub process capture:
     
         with Capture().popen('echo foo && echo bar >&2', shell=True) as capture:
             pass
-        assert capture.out == 'foo\n'
-        assert capture.err == 'bar\n'
+        assert capture.out_str == 'foo\n'
+        assert capture.err_str == 'bar\n'
     
     merge stderr into stdout:
     
@@ -32,7 +34,7 @@ class Capture:
             print('foo')
             print('bar', file=sys.stderr)
         
-        assert capture.out == 'foo\nbar\n'
+        assert capture.out_str == 'foo\nbar\n'
     
    into file:
     
@@ -56,12 +58,12 @@ class Capture:
         
             stdout: str
                 - if None, no capture
-                - if ':memory:', capture into memory, accessible by `.out`
+                - if ':memory:', capture into memory, accessible by `.out_str`
                 - other value is considered as file path
 
             stderr: str
                 - if None, no capture
-                - if ':memory:', capture into memory, accessible by `.err`
+                - if ':memory:', capture into memory, accessible by `.err_str`
                 - if ':stdout:', then same as stdout
                 - other value is considered as file path
         """
@@ -74,9 +76,11 @@ class Capture:
         self.out_file = None
         self.err_file = None
         self.proc = None
+
+        self._capturing = False
     
     @property
-    def out(self) -> str:
+    def out_str(self) -> str:
         if self.out_path:
             with self.out_path.open() as f:
                 return f.read()
@@ -84,12 +88,20 @@ class Capture:
             return self.out_file.read()
     
     @property
-    def err(self) -> str:
+    def err_str(self) -> str:
         if self.err_path:
             with self.err_path.open() as f:
                 return f.read()
         elif self.err_file and self.err_file is not self.out_file:
             return self.err_file.read()
+    
+    @property
+    def out(self):
+        return _OutWrapper(self, lambda: getattr(self, 'out_path'), lambda: getattr(self, 'out_file'))
+    
+    @property
+    def err(self):
+        return _OutWrapper(self, lambda: getattr(self, 'err_path'), lambda: getattr(self, 'err_file'))
     
     def popen(self, *args, **kwargs):
         self.out_path, self.out_file = _setup_out(self.stdout, 'stdout', kwargs)
@@ -107,6 +119,8 @@ class Capture:
     
     @contextlib.contextmanager
     def _enterexit(self):
+        self._capturing = True
+
         with contextlib.ExitStack() as stack:
             if self.proc:
                 self._collect_outputs()
@@ -127,6 +141,8 @@ class Capture:
             stack.enter_context(_closing(self.err_file))
 
             yield self
+
+        self._capturing = False
     
     def _collect_outputs(self):
         fds = []
@@ -185,8 +201,8 @@ class Capture:
 
 class _Output:
     
-    def __init__(self):
-        self.contents = []
+    def __init__(self, contents=None):
+        self.contents = contents or []
     
     def read(self):
         return ''.join(self.contents)
@@ -196,6 +212,79 @@ class _Output:
     
     def close(self):
         pass
+    
+    async def readline(self):
+        self._lines = self.read().split('\n')[:-1]
+        if self._i_line >= len(self._lines):
+            return None
+        line = self._lines[self._i_line]
+        self._i_line += 1
+        return line + '\n'
+    
+    def _as_readable_file(self):
+        ret = _Output(self.contents)
+        ret._prepare_read()
+        return ret
+    
+    def _prepare_read(self):
+        self._lines = self.read().split('\n')
+        self._i_line = 0
+
+
+class _OutWrapper:
+    
+    def __init__(self, capture, get_out_path, get_out_file):
+        self.capture = capture
+        self.get_out_path = get_out_path
+        self.get_out_file = get_out_file
+
+    async def iter_async(self, follow: bool = False):
+        async with self._use_out_file_async(follow=follow) as f:
+            if not f:
+                return
+
+            if follow:
+                prev_capturing = self.capture._capturing
+
+                while True:
+                    line = await f.readline()
+                    if line:
+                        yield line
+                    else:
+                        await asyncio.sleep(0.01)
+
+                    if prev_capturing and not self.capture._capturing:
+                        break
+            else:
+                async for line in f:
+                    yield line
+    
+    @property
+    def out_path(self):
+        return self.get_out_path()
+    
+    @property
+    def out_file(self):
+        return self.get_out_file()
+    
+    @contextlib.asynccontextmanager
+    async def _use_out_file_async(self, follow: bool = False):
+        while True:
+            yielded = True
+
+            if self.out_path:
+                async with aiofiles.open(self.out_path) as f:
+                    yield f
+            elif self.out_file:
+                yield self.out_file._as_readable_file()
+            else:
+                yielded = False
+            
+            if follow and not yielded:
+                await asyncio.sleep(0.01)
+                continue
+
+            break
 
 
 def _setup_out(out, name, kwargs={}):
@@ -212,8 +301,8 @@ def _setup_out(out, name, kwargs={}):
     elif out == ':stdout:':
         kwargs[name] = subprocess.STDOUT
     else:
-        out_path = Path(out)
-        kwargs[name] = out_file = out_path.open('w')
+        out_path = Path(out).expanduser()
+        kwargs[name] = out_file = out_path.open('w', buffering=1)
     
     return out_path, out_file
 

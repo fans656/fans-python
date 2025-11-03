@@ -73,7 +73,7 @@ class Run:
 
     @property
     def output(self) -> str:
-        return self.capture.out
+        return self.capture.out_str
 
     @property
     def finished(self):
