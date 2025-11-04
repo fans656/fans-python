@@ -20,11 +20,7 @@ def paginated_response(item_model):
     )
 
 
-@app.get('/jobs', response_model=paginated_response(create_model('Job', **{
-    'id': (str, Field()),
-    'name': (Optional[str], Field(default=None)),
-    'extra': (Optional[Any], Field(default=None)),
-})))
+@app.get('/jobs')
 async def list_jobs_():
     """List existing jobs"""
     data = [job.as_dict() for job in Jober.get_instance().jobs]
@@ -35,7 +31,7 @@ async def list_jobs_():
 async def list_runs_(job_id: str):
     """List runs of given job"""
     job = _get_job(job_id)
-    data = [run.as_dict() for run in job.runs]
+    data = sorted([run.as_dict() for run in job.runs], key=lambda d: d['run_id'])
     return {'data': data}
 
 

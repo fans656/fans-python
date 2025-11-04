@@ -266,6 +266,7 @@ class Jober:
                 id=name,
                 name=name,
                 cwd=spec.get('cwd'),
+                when=spec.get('when'),
                 shell=spec.get('shell'),
             )
 

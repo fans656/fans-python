@@ -71,6 +71,7 @@ class Job:
         return {
             'id': self.id,
             'name': self.name,
+            'type': self.target.type,
             'extra': self.extra,
         }
 

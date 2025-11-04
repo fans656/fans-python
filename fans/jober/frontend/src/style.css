@@ -1,0 +1,572 @@
+:root {
+  --active-color: #58ACFA;
+  --hover-active-color: #81BEF7;
+}
+
+html {
+  min-height: 100%;
+  font-family: Arial;
+  font-size: 0.9rem;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root, .app {
+  display: flex;
+  flex-direction: column;
+}
+
+/* without this, 100vh of fixed full height page with math formula will have unwanted scrollbar */
+.katex-mathml {
+  display: none;
+}
+
+body, #root, .app {
+  flex: 1;
+  background-color: #EFF5FB;
+}
+
+/* https://www.bennadel.com/blog/3391-margin-collapsing-causes-unexpected-scrollbar-with-100vh-body-in-webkit.htm */
+/*
+body::after {
+  content: "" ;
+  display: table;
+  height: 0px ;
+}
+*/
+
+.page-center {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gray {
+  color: #aaa;
+}
+
+.light-gray {
+  color: #ccc;
+}
+
+.red {
+  color: #FE2E2E;
+}
+
+.white {
+  background-color: white;
+}
+
+.lightgray {
+  color: #ccc;
+}
+
+.horz {
+  display: flex;
+}
+
+.vert {
+  display: flex;
+  flex-direction: column;
+}
+
+.wrap {
+  flex-wrap: wrap;
+}
+
+.h-center {
+  justify-content: center;
+}
+
+.even {
+  justify-content: space-evenly;
+}
+
+.around {
+  justify-content: space-between;
+}
+
+.space {
+  justify-content: space-between;
+}
+
+.space-around {
+  justify-content: space-around;
+}
+
+.center {
+  align-items: center;
+}
+
+.center-base {
+  align-items: baseline;
+}
+
+.horz.right {
+  justify-content: flex-end;
+}
+
+.flex-start {
+  align-items: flex-start;
+}
+
+.flex-end {
+  align-items: flex-end;
+}
+
+.end {
+  justify-content: flex-end;
+}
+
+.align-flex-start {
+  align-items: flex-start;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.flex-2 {
+  flex: 2;
+}
+
+.flex-3 {
+  flex: 3;
+}
+
+.flex-4 {
+  flex: 4;
+}
+
+.flex-5 {
+  flex: 5;
+}
+
+.flex-6 {
+  flex: 6;
+}
+
+.flex-7 {
+  flex: 7;
+}
+
+.flex-8 {
+  flex: 8;
+}
+
+.flex-9 {
+  flex: 9;
+}
+
+.left {
+  text-align: left;
+}
+
+.right {
+  text-align: right;
+}
+
+.break {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-all;
+}
+
+.clickable:hover {
+  cursor: pointer;
+}
+
+.hoverable:hover {
+  text-decoration: underline;
+}
+
+.black-hover:hover {
+  color: #222;
+}
+
+.alice-hover:hover {
+  background: aliceblue;
+}
+
+.horz.xxs-margin > *:not(:last-child) {
+  margin-right: 0.25em;
+}
+
+.horz.xs-margin > *:not(:last-child) {
+  margin-right: 0.5em;
+}
+
+.horz.margin > *:not(:last-child) {
+  margin-right: 1em;
+}
+
+.horz.xl-margin > *:not(:last-child) {
+  margin-right: 2.5em;
+}
+
+.horz.xxl-margin > *:not(:last-child) {
+  margin-right: 5em;
+}
+
+.vert.xs-margin > *:not(:last-child) {
+  margin-bottom: 0.5em;
+}
+
+.vert.margin > *:not(:last-child) {
+  margin-bottom: 1em;
+}
+
+.vert.xl-margin > *:not(:last-child) {
+  margin-bottom: 2.5em;
+}
+
+.vert.xxl-margin > *:not(:last-child) {
+  margin-bottom: 5em;
+}
+
+.xs-margin-top {
+  margin-top: .5em;
+}
+
+.margin-top {
+  margin-top: 1em;
+}
+
+.xl-margin-top {
+  margin-top: 1.5em;
+}
+
+.xxl-margin-top {
+  margin-top: 3em;
+}
+
+.xxs-margin-btm {
+  margin-bottom: .25em;
+}
+
+.xs-margin-btm {
+  margin-bottom: .5em;
+}
+
+.margin-btm {
+  margin-bottom: 1em;
+}
+
+.xl-margin-btm {
+  margin-bottom: 1.5em;
+}
+
+.xxl-margin-btm {
+  margin-bottom: 3em;
+}
+
+.xxl-margin-right {
+  margin-right: 5em;
+}
+
+.xl-margin-right {
+  margin-right: 2.5em;
+}
+
+.margin-right {
+  margin-right: 1em;
+}
+
+.xs-margin-right {
+  margin-right: .5em;
+}
+
+.xxs-margin-right {
+  margin-right: .25em;
+}
+
+.xxs-margin-left {
+  margin-left: .25em;
+}
+
+.xs-margin-left {
+  margin-left: .5em;
+}
+
+.margin-left {
+  margin-left: 1em;
+}
+
+.xl-margin-left {
+  margin-left: 2.5em;
+}
+
+.items {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.items > *:not(:last-child) {
+  margin-right: 1em;
+}
+
+.shadow {
+  box-shadow: 0 0 5px #eee;
+}
+
+.border-left {
+  border-left: 1px solid #eee;
+}
+
+.border-top {
+  border-top: 1px solid #eee;
+}
+
+.border-bottom {
+  border-bottom: 1px solid #eee;
+}
+
+/*
+::-webkit-scrollbar {
+  width: 15px; 
+   background-color: rgba(0,0,0,0);
+  -webkit-border-radius: 80px;
+}
+::-webkit-scrollbar:hover {
+  background-color: rgba(0, 0, 0, 0.09);
+}
+
+::-webkit-scrollbar-thumb:vertical {
+  background: rgba(0,0,0,0.2);
+}
+::-webkit-scrollbar-thumb:vertical:active {
+  background: rgba(0,0,0,0.2);
+}
+*/
+
+.hidden-scroll-bar::-webkit-scrollbar {
+  width: 0;
+}
+
+.narrow-scroll-bar::-webkit-scrollbar {
+  width: .6em;
+}
+
+.narrow-scroll-bar::-webkit-scrollbar-track {
+  background-color: #f1f1f1;
+}
+
+.narrow-scroll-bar::-webkit-scrollbar-thumb {
+  background-color: #c1c1c1;
+}
+
+pre {
+  font-family: Consolas, 'Microsoft Yahei', monospace;
+  overflow-x: auto;
+}
+
+pre code {
+  font-family: Consolas, monospace;
+}
+
+@media (resolution: 120dpi) {
+  img {
+    zoom: 0.8;
+  }
+}
+
+.hidden {
+  display: none;
+}
+
+.small {
+  font-size: .8rem;
+}
+
+.xs-small {
+  font-size: .7rem;
+}
+
+div.bordered {
+  border: 0.5px solid #ccc;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+table.bordered, table.bordered td, table.bordered th {
+  border: 0.5px solid #ccc;
+}
+
+table.bordered.light, table.bordered.light td, table.bordered.light th {
+  border: 0.5px solid #ccc;
+}
+
+table.bordered td, table.bordered th {
+  padding: .5em;
+}
+
+.grid {
+  border-collapse: collapse;
+}
+
+.grid td {
+  border: 1px solid black;
+}
+
+.grid .grid tr td:first-child {
+  border-left: 0;
+}
+
+.grid .grid tr td:last-child {
+  border-right: 0;
+}
+
+.grid .grid tr:first-child td {
+  border-top: 0;
+}
+
+.grid .grid tr:last-child td {
+  border-bottom: 0;
+}
+
+.minor {
+  font-size: .8em;
+  color: #ccc;
+}
+
+blockquote {
+  border-left: 8px solid #eee;
+  padding-left: .5em;
+}
+
+.markdown-code {
+  background: aliceblue;
+}
+
+.w2em {min-width: 2em;}
+.w3em {min-width: 3em;}
+.w5em {min-width: 5em;}
+.w6em {min-width: 6em;}
+.w8em {min-width: 8em;}
+.w10em {min-width: 10em;}
+.w12em {min-width: 12em;}
+.w13em {min-width: 13em;}
+.w15em {min-width: 15em;}
+.w20em {min-width: 20em;}
+.w23em {min-width: 23em;}
+.w25em {min-width: 25em;}
+.w30em {min-width: 30em;}
+.w32em {min-width: 32em;}
+.w35em {min-width: 35em;}
+.w40em {min-width: 40em;}
+.w45em {min-width: 45em;}
+.w48em {min-width: 48em;}
+
+.lim-w10em {
+  max-width: 10em;
+}
+
+.lim-w15em {
+  max-width: 15em;
+}
+
+.lim-w20em {
+  max-width: 20em;
+}
+
+.lim-w25em {
+  max-width: 25em;
+}
+
+.lim-w30em {
+  max-width: 30em;
+}
+
+.lim-w35em {
+  max-width: 35em;
+}
+
+.h10em {
+  min-height: 10em;
+}
+
+.h15em {
+  min-height: 15em;
+}
+
+.h20em {
+  min-height: 20em;
+}
+
+.h25em {
+  min-height: 25em;
+}
+
+.h30em {
+  min-height: 30em;
+}
+
+.h40em {
+  min-height: 40em;
+}
+
+.h45em {
+  min-height: 45em;
+}
+
+.h50em {
+  min-height: 50em;
+}
+
+pre.markdown-code {
+  padding: .5em;
+}
+
+.inline-block {
+  display: inline-block;
+}
+
+/*********************************************************** layout */
+
+.xs-padding {
+  padding: .5rem;
+}
+
+.padding {
+  padding: .5rem 1rem;
+}
+
+.vpadding {
+  padding: .5rem 0;
+}
+
+.hpadding {
+  padding: 0 1rem;
+}
+
+.tpadding {
+  padding-top: .5rem;
+}
+
+.full {
+  min-width: 100vw; /* for eno to occupy full width of client */
+}
+
+.auto-margin {
+  margin: auto;
+}
+
+.gap {
+  gap: 1em;
+}
+
+.d3-context-menu {
+  font-size: .8rem;
+  background-color: #eee;
+  padding: .2rem;
+}
