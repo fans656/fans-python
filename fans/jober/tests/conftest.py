@@ -1,5 +1,6 @@
 import contextlib
 import multiprocessing
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +29,11 @@ def empty_instance():
     yield
     Jober.conf = conf
     Jober.instance = None
+
+
+@pytest.fixture
+def samples_dir():
+    return Path(__file__).absolute().parent / 'samples'
 
 
 def parametrized():

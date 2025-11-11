@@ -68,6 +68,7 @@ class Jober:
         )
 
         self._listeners = set()
+        self._services = {}
         
         self._load_jobs_from_conf()
 
@@ -139,6 +140,10 @@ class Jober:
         
         if when is not None:
             self._schedule_job(job, when)
+        
+        if job.target.options.get('service'):
+            self._services[job.id] = thread = threading.Thread(target=_run_as_service, args=(job,), daemon=True)
+            thread.start()
 
         self.start()  # ensure started
 
@@ -153,9 +158,9 @@ class Jober:
             cwd: str = None,
             shell: bool = False,
             process: bool = False,
+            service: bool = False,
             **job_kwargs,
     ) -> 'Job':
-        """Make a job without adding to jober."""
         target = Target.make(
             target,
             args,
@@ -163,6 +168,7 @@ class Jober:
             shell=shell,
             cwd=cwd,
             process=process,
+            service=service,
         )
 
         job_kwargs.setdefault('max_recent_runs', self.conf.max_recent_runs)
@@ -268,6 +274,7 @@ class Jober:
                 cwd=spec.get('cwd'),
                 when=spec.get('when'),
                 shell=spec.get('shell'),
+                service=spec.get('service'),
             )
 
 
@@ -309,6 +316,12 @@ def _init_pool_thread(queue: queue.Queue):
     global _events_queue
     _events_queue = queue
     Logger.reset_handlers(module_levels={'apscheduler': logging.WARNING})
+
+
+def _run_as_service(job):
+    while True:
+        job()
+        time.sleep(1)
 
 
 _events_queue = None

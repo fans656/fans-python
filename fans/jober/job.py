@@ -73,6 +73,7 @@ class Job:
             'name': self.name,
             'type': self.target.type,
             'extra': self.extra,
+            'target': self.target.as_dict(),
         }
 
     @property

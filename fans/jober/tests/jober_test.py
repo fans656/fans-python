@@ -9,6 +9,14 @@ from fans.jober.jober import Jober
 from fans.jober.tests.conftest import parametrized
 
 
+class Test_api:
+    
+    def test_start_stop(self):
+        jober = Jober()
+        jober.start()
+        jober.stop()
+
+
 class Test_load_jobs_from_conf:
 
     def test_load_jobs_from_conf(self, tmp_path):

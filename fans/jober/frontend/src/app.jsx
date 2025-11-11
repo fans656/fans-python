@@ -71,7 +71,7 @@ function JobDetail({job, run, runs, set_currentRun}) {
         </div>
       </div>
       <div className="small mono">
-        <pre><code>{JSON.stringify(job)}</code></pre>
+        <pre><code>{JSON.stringify(job, null, 2)}</code></pre>
       </div>
       <div className="horz margin flex-1">
         <RunOutput job={job} run={run || runs[0]}/>
@@ -105,7 +105,7 @@ function RunOutput({job, run}) {
         padding: '.5em',
       }}
     >
-      {text}
+      <pre style={{margin: 0, padding: 0}}>{text}</pre>
     </div>
   );
 }

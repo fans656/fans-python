@@ -1,5 +1,8 @@
+import time
+import threading
 from pathlib import Path
 
+import pytest
 from fans.jober.target import (
     Target,
     _get_impl_cls,
@@ -161,3 +164,40 @@ class Test_python_module_callable:
         
         with out_fpath.open() as f:
             assert f.read() == 'foo\n'
+
+
+class Test_unbuffered:
+    
+    @pytest.fixture
+    def verify(self, tmp_path):
+
+        def _verify(source):
+            stop_fpath = tmp_path / 'stop'
+
+            target = Target.make(source, kwargs={
+                'interval': 0.01,
+                'stop-file': str(stop_fpath),
+            })
+            print(target)
+
+            thread = threading.Thread(target=target)
+            thread.start()
+
+            for _ in range(5):
+                time.sleep(0.1)
+                out = target.capture.out_str.strip()
+                n_lines = len(out.split('\n'))
+                if n_lines > 1:
+                    break
+            assert n_lines > 1
+
+            stop_fpath.touch()
+            thread.join()
+
+        return _verify
+    
+    def test_python_script(self, verify, samples_dir):
+        verify(str(samples_dir / 'counting.py'))
+    
+    def test_python_module(self, verify):
+        verify('fans.jober.tests.samples.counting')

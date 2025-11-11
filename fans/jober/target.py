@@ -102,13 +102,26 @@ class Target:
     def cwd(self):
         return Path(self.options.get('cwd') or os.getcwd()).expanduser()
     
+    def as_dict(self):
+        return {
+            'source': self.source,
+            'args': self.args,
+            'kwargs': self.kwargs,
+            'options': self.options,
+        }
+    
+    def _get_capture(self):
+        if not self.capture:
+            self.capture = Capture(**self.options)
+        return self.capture
+    
     def _run_in_place(self, func):
-        with (self.capture or Capture(**self.options)):
+        with self._get_capture():
             return func(*self.args, **self.kwargs)
 
     def _run_in_process(self, cmd: str|list[str]):
         options = self.options
-        with (self.capture or Capture(**options)).popen(
+        with self._get_capture().popen(
             cmd,
             cwd=str(self.cwd),
             shell=options.get('shell', False),
@@ -139,9 +152,15 @@ class PythonScriptTarget(Target):
 
     type = Target.Type.python_script
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        self.source = str(Path(self.source).expanduser())
+    
     def __call__(self):
         return self._run_in_process([
             sys.executable,
+            '-u',  # unbuffered
             self.source,
             *_to_cmdline_options(self.args, self.kwargs),
         ])
@@ -154,6 +173,7 @@ class PythonModuleTarget(Target):
     def __call__(self):
         return self._run_in_process([
             sys.executable,
+            '-u',  # unbuffered
             '-m',
             self.source,
             *_to_cmdline_options(self.args, self.kwargs),
@@ -168,6 +188,7 @@ class PythonCallableTarget(Target):
         if self.options.get('process'):
             return self._run_in_process([
                 sys.executable,
+                '-u',  # unbuffered
                 '-c',
                 (
                     f'import pickle, base64;'
@@ -190,6 +211,7 @@ class PythonScriptCallableTarget(Target):
         if self.options.get('process'):
             return self._run_in_process([
                 sys.executable,
+                '-u',  # unbuffered
                 '-c',
                 (
                     f'import pickle, base64, importlib.util;'
@@ -220,6 +242,7 @@ class PythonModuleCallableTarget(Target):
         if self.options.get('process'):
             return self._run_in_process([
                 sys.executable,
+                '-u',  # unbuffered
                 '-c',
                 (
                     f'import pickle, base64;'
