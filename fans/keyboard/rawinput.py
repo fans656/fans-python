@@ -7,13 +7,82 @@ To swallow key events:
     https://www.codeproject.com/Articles/716591/Combining-Raw-Input-and-keyboard-Hook-to-selective
 """
 import ctypes
-from ctypes import windll, wintypes
 import functools
+from ctypes import windll, wintypes
+user32 = windll.user32
 
 import win32gui
 import win32api
 import win32con
-user32 = windll.user32
+
+
+def hook_keyboard(callback):
+    wc = win32gui.WNDCLASS()
+    wc.lpfnWndProc = functools.partial(_proc, callback)
+    wc.lpszClassName = 'KeyListener'
+    hinst = wc.hInstance = win32api.GetModuleHandle(None)
+    classAtom = win32gui.RegisterClass(wc)
+    hwnd = win32gui.CreateWindow(
+        classAtom,
+        'KeyListener',
+        0,0,0,
+        0, 0, # width, height
+        0, 0,
+        hinst, None
+    )
+    rid = RAWINPUTDEVICE()
+    rid.usUsagePage = 1
+    rid.usUsage = 6
+    rid.dwFlags = RIDEV_INPUTSINK
+    rid.hwndTarget = hwnd
+    user32.RegisterRawInputDevices(ctypes.byref(rid), 1, ctypes.sizeof(RAWINPUTDEVICE))
+
+    def run(allow_ctrl_c_to_quit=True, exit_code=0):
+        if allow_ctrl_c_to_quit:
+            import signal
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+        try:
+            win32gui.PumpMessages()
+        except KeyboardInterrupt:
+            return exit_code
+
+    return run
+
+
+def _proc(onkey, hwnd, msg, wparam, lparam):
+    if msg == WM_INPUT:
+        hRawInput = lparam
+        raw_input = RAWINPUT()
+        cbSize = wintypes.UINT(ctypes.sizeof(raw_input))
+        user32.GetRawInputData(
+            hRawInput,
+            RID_INPUT,
+            ctypes.byref(raw_input),
+            ctypes.byref(cbSize),
+            ctypes.sizeof(RAWINPUTHEADER),
+        )
+        event = RawKeyEvent(raw_input.keyboard)
+        onkey(event)
+    return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
+
+
+class RawKeyEvent:
+
+    __fields__ = ['Key', 'KeyId', 'Message']
+
+    def __init__(self, raw_input_keyboard):
+        key = _to_key(raw_input_keyboard)
+        self.Key = vk2name.get(key, chr(key))
+        self.KeyId = key
+        self.Message = raw_input_keyboard.Message
+
+    @property
+    def is_down(self):
+        return self.Message == win32con.WM_KEYDOWN or self.Message == win32con.WM_SYSKEYDOWN
+
+    def __repr__(self):
+        return f"Key={self.Key}, KeyId={self.KeyId}, is_down={self.is_down}"
+
 
 RIDEV_INPUTSINK = 0x100
 WM_INPUT = 0xff
@@ -72,7 +141,7 @@ class RAWINPUT(ctypes.Structure):
         ('keyboard', RAWKEYBOARD),
     ]
 
-def differentiated_extendable_key(rk):
+def _to_key(rk):
     # https://stackoverflow.com/a/18340130
     key = rk.VKey
     extended = rk.Flags & RI_KEY_E0
@@ -85,52 +154,10 @@ def differentiated_extendable_key(rk):
         key = win32api.MapVirtualKey(rk.MakeCode, MAPVK_VSC_TO_VK_EX) or key
     return key
 
-class RawKeyEvent(object):
 
-    def __init__(self, rk):
-        key = differentiated_extendable_key(rk)
-        self.Key = vk2name.get(key, chr(key))
-        self.KeyID = key
-        self.Message = rk.Message
+if __name__ == '__main__':
+    def func(event):
+        print(event)
 
-def proc(onkey, hwnd, msg, wparam, lparam):
-    try:
-        if msg == WM_INPUT:
-            hRawInput = lparam
-            ri = RAWINPUT()
-            cbSize = wintypes.UINT(ctypes.sizeof(ri))
-            r = user32.GetRawInputData(
-                hRawInput,
-                RID_INPUT,
-                ctypes.byref(ri),
-                ctypes.byref(cbSize),
-                ctypes.sizeof(RAWINPUTHEADER))
-            rk = ri.keyboard
-            ev = RawKeyEvent(ri.keyboard)
-            onkey(ev)
-        return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
-    except KeyboardInterrupt:
-        exit(0)
-
-def register_keyboard(onkey):
-    wc = win32gui.WNDCLASS()
-    wc.lpfnWndProc = functools.partial(proc, onkey)
-    wc.lpszClassName = 'KeyListener'
-    hinst = wc.hInstance = win32api.GetModuleHandle(None)
-    classAtom = win32gui.RegisterClass(wc)
-    hwnd = win32gui.CreateWindow(
-        classAtom,
-        'KeyListener',
-        0,0,0,
-        0, 0, # width, height
-        0, 0,
-        hinst, None
-    )
-    rid = RAWINPUTDEVICE()
-    rid.usUsagePage = 1
-    rid.usUsage = 6
-    rid.dwFlags = RIDEV_INPUTSINK
-    rid.hwndTarget = hwnd
-    user32.RegisterRawInputDevices(
-        ctypes.byref(rid), 1, ctypes.sizeof(RAWINPUTDEVICE)
-    )
+    run = hook_keyboard(func)
+    run()

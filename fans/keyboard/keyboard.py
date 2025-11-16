@@ -1,106 +1,87 @@
-import time
 import itertools
-import threading
 import logging
 import traceback
-from collections import defaultdict
+from typing import Callable
 
 import win32con
 import win32api
 
-from .bunch import bunch
-from  . import rawinput
+from fans.bunch import bunch
+from . import rawinput
 
-__all__ = ['Keyboard', 'parse_seq']
+
+__all__ = ['Keyboard']
+
 
 logger = logging.getLogger(__name__)
+
 
 class Keyboard(object):
 
     def __init__(self):
         self._seqs = []
         self._state = [False for _ in range(256)]
-        rawinput.register_keyboard(self._onkey)
+        self.run = rawinput.hook_keyboard(self._onkey)
 
     @staticmethod
-    def seq(self):
+    def seq(seq):
         return parse_seq(seq)
 
-    def on(self, seq, callback, args=()):
+    def on(self, seq: str, callback: Callable):
         """Listen on specific key sequence
 
-        Register callback on specific key stroke sequence.
-        Sequence examples:
-            'MENU TAB' - press `tab` while holding `alt`
-            'MENU TAB^' - release `tab` while holding `alt`
-            'CTRL ALT 1' - press `1` while holding ctrl and alt
-            'LCTRL SPACE' - press `space(ASCII 0x20)` while holding `lctrl`
-            'A B C' - press `c` while holding `a` and `b`
-        The last key in sequence is the trigger, others are all modifiers.
-        In order to match the sequence, you need to hold down all the
-        modifiers, then press/release the trigger.
+        Sequence is a string of key names, with last one as trigger and all others as modifiers:
+
+            'menu tab' - Holding <alt> then press <tab>
+            'menu tab^' - Holding <alt> then press and release <tab>
+            'ctrl alt 1' - Holding <ctrl> and <alt> then press <1>
+            'lctrl space' - Holding <left-ctrl> then press <space>
+            'a b c' - Holding <a> and <b> then press <c>
+
         See "Virtual-Key Codes (Windows)"[1] for the key names.
-        Mapping rul is `<name> => VK_<name>`, for example:
+
+        Mapping rule is `<name> => VK_<name>`, for example:
             'MENU' - VK_MENU
             'LMENU' - VK_LMENU
             '1' - 0x31 which is ord('1')
             'A' - 0x41 which is ord('A'), NOTE that you can't use 'a'
                   (0x61 is for VK_NUMPAD1)
             'NUMBPAD1' - VK_NUMPAD1 (0x61)
+
         [1]: https://msdn.microsoft.com/en-us/library/windows/desktop/dd375731.aspx
 
         Args:
             seq - a str describing the key sequence
-            callback - a callable with one argument (a `Sequence` object)
-                to be called when the key sequence is detected
+            callback - a callable taking no argument
 
         Returns:
             [Sequence]
             E.g. 'alt f' => [(VK_LMENU, ord('f')), (VK_RMENU, ord('f'))]
         """
-        if not callable(callback):
-            callback = id
-            logger.warning(
-                'invalid callback in sequence "{}", will use nop'.format(seq))
         try:
             seqs = parse_seq(seq) if not isinstance(seq, Sequence) else seq
             for seq in seqs:
                 seq.callback = callback
-                seq.args = args
                 self._seqs.append(seq)
                 logger.info('register {} '.format(repr(seq)))
             return seqs
         except ValueError as e:
             logger.warning(e.message)
 
-    def run(self):
-        """Helpler method to begin an event loop"""
-        import pythoncom
-        pythoncom.PumpMessages()
-
     def _onkey(self, ev):
         try:
             ev = KeyEvent(ev)
-            #logger.debug('{:>8}({}) {:4}'.format(
-            #    ev.Key, hex(ev.KeyID), 'DOWN' if ev.down else 'UP'))
-            if ev.KeyID >= len(self._state):
-                logger.warning('key unrecoginized: KeyID={}, Key={}'.format(
-                    ev.KeyID, ev.Key))
+            if ev.KeyId >= len(self._state):
+                logger.warning(f'key unrecoginized: KeyId={ev.KeyId}, Key={ev.Key}')
                 return 1
-            self._state[ev.KeyID] = ev.down
+            self._state[ev.KeyId] = ev.down
             sig = self.downs
-            #logger.debug('downs: {}'.format(signature_str(sig)))
             for seq in self._seqs:
                 if sig != seq.signature:
                     continue
-                #logger.debug('sig match | ev: {}({}), trigger: {}({})'.format(
-                #    to_name(ev.KeyID), updown(up=ev.up),
-                #    to_name(seq.trigger), updown(up=seq.up)
-                #))
-                match = ev.KeyID == seq.trigger and ev.up == seq.up
-                if match:
+                if ev.KeyId == seq.trigger and ev.up == seq.up:
                     logger.debug('"{}" detected'.format(str(seq)))
-                    r = seq.callback(*seq.args)
+                    r = seq.callback()
                     if r is None:
                         return 1
                     return 1 if r else 0
@@ -114,38 +95,36 @@ class Keyboard(object):
 
     @property
     def downs(self):
-        return tuple(vk for vk, down in enumerate(self._state)
-                     if down and vk != 0xff)
+        return tuple(vk for vk, down in enumerate(self._state) if down and vk != 0xff)
 
     @property
     def ups(self):
-        return tuple(vk for vk, down in enumerate(self._state)
-                     if not down and vk != 0xff)
+        return tuple(vk for vk, down in enumerate(self._state) if not down and vk != 0xff)
 
-class Sequence(object):
 
-    def __init__(self, trigger, up, modifiers, signature, seq,
-                 callback=None, args=()):
+class Sequence:
+
+    def __init__(self, trigger, up, modifiers, signature, seq, callback=None):
         self.trigger = trigger
         self.up = up
         self.modifiers = modifiers
         self.signature = signature
         self.seq = seq
         self.callback = callback
-        self.args = args
 
     def __str__(self):
         return self.seq
 
     def __repr__(self):
         to_sig = lambda sig: ','.join(map(to_name, sig))
-        return ('Sequence(seq="{}", modifiers={}, trigger={}, '
-                'sig=[{}], up={})'.format(
-                    self.seq,
-                    to_sig(self.modifiers),
-                    to_name(self.trigger),
-                    to_sig(self.signature),
-                    self.up))
+        return (
+            f'Sequence(seq="{self.seq}", '
+            f'modifiers={to_sig(self.modifiers)}, '
+            f'trigger={to_name(self.trigger)}, '
+            f'sig=[{to_sig(self.signature)}], '
+            f'up={self.up})'
+        )
+
 
 def parse_seq(seq):
     names = seq.split()
@@ -159,28 +138,32 @@ def parse_seq(seq):
     keys = [to_key(name) for name in names]
     unrecognized_names = [name for name, key in zip(names, keys) if not key]
     if unrecognized_names:
-        raise ValueError('unrecognized key names {} '
-                         'in key sequence "{}"'.format(
-                             unrecognized_names, seq))
+        raise ValueError(f'unrecognized key names {unrecognized_names} in key sequence "{seq}"')
     uniq_keys = set(keys)
     if len(keys) != len(uniq_keys):
-        logger.warning('duplicate keys in sequence "{}"'.format(seq))
+        logger.warning(f'duplicate keys in sequence "{seq}"')
     keys_a = itertools.product(*(SYNTHESIS_KEYS.get(key, [key]) for key in keys))
-    return [Sequence(trigger=keys[-1], up=up, modifiers=keys[:-1],
-                     signature=tuple(sorted(keys[:-1] if up else keys)),
-                     seq=seq)
-            for keys in keys_a]
+    return [
+        Sequence(
+            trigger=keys[-1],
+            up=up,
+            modifiers=keys[:-1],
+            signature=tuple(sorted(keys[:-1] if up else keys)),
+            seq=seq,
+        ) for keys in keys_a
+    ]
 
-class KeyEvent(object):
+
+class KeyEvent:
 
     def __init__(self, ev):
         self.ev = ev
-        self.down = self.Message in (
-            win32con.WM_KEYDOWN, win32con.WM_SYSKEYDOWN)
+        self.down = ev.is_down
         self.up = not self.down
 
     def __getattr__(self, attr):
         return getattr(self.ev, attr)
+
 
 ALIASES = {
     'CTRL': 'CONTROL',
@@ -212,12 +195,10 @@ SYNTHESIS_KEYS = {
     ),
 }
 
-def get_keys():
-    return tuple(k for k in range(255)
-                 if win32api.GetAsyncKeyState(k) & 0x8000)
 
 def to_name(key):
     return VK2NAME.get(key, None) or chr(key)
+
 
 def to_key(name):
     name = name.upper()
@@ -228,22 +209,14 @@ def to_key(name):
         return None
     return min(r, 255)
 
-def signature_str(sig):
-    return map(to_name, sig)
-
-def updown(down=None, up=None):
-    if up is None:
-        up = not down
-    elif down is None:
-        down = not up
-    return 'UP' if up else 'DOWN'
 
 if __name__ == '__main__':
-    def onkey(updown):
-        print('ctrl-;', updown)
-
-    logger.setLevel(logging.DEBUG)
-    #logger.setLevel(logging.INFO)
     kbd = Keyboard()
-    kbd.on('ctrl ;', lambda: onkey('down'))
+
+    kbd.on('alt shift', lambda: print('alt+shift'))
+    kbd.on('alt shift k', lambda: print('alt+shift+k'))
+
+    kbd.on('ctrl o', lambda: print('ctrl+o'))
+    kbd.on('ctrl i^', lambda: print('ctrl+i up'))
+    kbd.on('a b c', lambda: print('a+b+c'))
     kbd.run()
