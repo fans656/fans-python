@@ -1,5 +1,6 @@
 import pytest
 
+from fans.nos import cons
 from fans.nos import nos
 
 
@@ -77,7 +78,7 @@ def test_list():
 def test_list_domains():
     nos.put({'name': 'foo'})
     nos.put({'name': '1'}, domain='number')
-    assert set(nos.domains) == set(['nos_meta', 'nos_default', 'number'])
+    assert set(nos.domains) == {cons.DEFAULT_DOMAIN, 'number'}
 
 
 def test_field_link():

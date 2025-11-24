@@ -1,39 +1,14 @@
 import json
 
-import peewee
-
 
 class Collection:
 
-    def __init__(self, name, database):
+    def __init__(self, name, Model, Tag, Label):
         self.name = name
-        self.database = database
-
-    def initialize(self):
-        if self.name not in self.database.get_tables():
-            self.Model = type(self.name, (peewee.Model,), {
-                'key': peewee.TextField(primary_key=True),
-                'value': peewee.TextField(),
-            })
-            self.Tag = type(f'__tag__{self.name}', (peewee.Model,), {
-                'Meta': type('Meta', (), {
-                    'primary_key': peewee.CompositeKey('doc_key', 'tag'),
-                }),
-                'doc_key': peewee.TextField(index=True),
-                'tag': peewee.TextField(index=True),
-            })
-            self.Label = type(f'__label__{self.name}', (peewee.Model,), {
-                'Meta': type('Meta', (), {
-                    'primary_key': peewee.CompositeKey('doc_key', 'label_key', 'label_value'),
-                }),
-                'doc_key': peewee.TextField(index=True),
-                'label_key': peewee.TextField(index=True),
-                'label_value': peewee.TextField(index=True),
-            })
-            tables = [self.Model, self.Tag, self.Label]
-
-            self.database.bind(tables)
-            self.database.create_tables(tables)
+        
+        self.Model = Model
+        self.Tag = Tag
+        self.Label = Label
 
     def put(self, doc):
         self.Model.insert(
@@ -101,8 +76,11 @@ class Collection:
 
     def list(self):
         Model = self.Model
-        for model in Model.select(Model.value).order_by(Model.key):
-            yield json.loads(model.value)
+        for item in Model.select(Model.value).order_by(Model.key):
+            yield json.loads(item.value)
+    
+    def __iter__(self):
+        yield from self.list()
 
     def __len__(self):
         return self.Model.select().count()

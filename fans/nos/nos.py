@@ -7,10 +7,24 @@ from .cons import DEFAULT_DOMAIN
 
 
 class Nos:
+    """
+    Wraps a store and provide common APIs
+    """
 
     def __init__(self, path: str = 'nos.sqlite'):
         self._path = Path(path)
         self._store = None
+    
+    def __call__(self, *args, **kwargs):
+        """
+        Syntax sugar for writing:
+        
+            from fans.nos import nos
+
+            foo = nos('foo.sqlite')
+            bar = nos('bar.sqlite')
+        """
+        return Nos(*args, **kwargs)
 
     @property
     def path(self) -> Path:
@@ -110,8 +124,11 @@ class Nos:
             dst=dst_doc_id,
             rel=rel,
         ).execute()
+    
+    def collection(self, domain: str) -> Collection:
+        return self._get_collection(domain)
 
-    def _get_collection(self, domain=DEFAULT_DOMAIN):
+    def _get_collection(self, domain=DEFAULT_DOMAIN) -> Collection:
         return self.store.get_collection(domain)
 
 
