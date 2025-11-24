@@ -33,6 +33,6 @@ dev = [
     "pytest>=8.3.4",
     "pytest-asyncio>=0.25.2",
     "pytest-mock>=3.14.0",
-    "pywin32>=311",
+    "pywin32>=311; sys_platform=='win32'",
     "twine>=6.0.1",
 ]

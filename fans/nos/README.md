@@ -1,17 +1,18 @@
-Providing a document store which support:
-- put document into collection
-- get document by custom id
-- multiple collections in single store
-- tagging document and query by tag
-- labeling document and query by label
-- nested document
-- link between documents
+Wrap around a sqlite database and provides document store like interface.
+
+Supporting:
+- Put/Get/Delete document in a collection
+- Multiple collections in single store
+- Tagging document and query by tag
+- Labeling document and query by label
+- Nested document
+- Link between documents
 
 # Concepts
 
-Store - a sqlite database to store documents
-Collection - a sqlite table to store documents of same type
-Document - a JSON object that can store arbitrary fields
+Store - corresponding to a sqlite database
+Collection - corresponding to a sqlite table
+Document - corresponding to a sqlite table row
 
 # Features
 
@@ -19,9 +20,23 @@ Document - a JSON object that can store arbitrary fields
 
 Sample:
 
+    from fans.nos import nos
+
     nos.put({'name': 'foo', 'age': 3})
     nos.get('foo')
     nos.delete('foo')
+
+Note:
+- By default use `nos.sqlite` file in current directory
+- Can be changed by `nos.path = database_path`
+- You can also create custom nos instance by:
+
+      from fans.nos import Nos
+
+      my_nos = Nos(database_path)
+      my_nos.put(...)
+      my_nos.get(...)
+      my_nos.delete(...)
 
 ## Collections
 
@@ -30,6 +45,9 @@ Sample:
     persons = nos.Collection('person')
     persons.put({'name': 'foo', 'age': 3})
     persons.get('foo')
+
+Note:
+- `nos`'s `put/get/delete` methods actually delegate to the default collection (`nos_default`)
 
 ## Tag/Label
 

@@ -3,13 +3,6 @@ import pytest
 from fans.nos import nos
 
 
-@pytest.fixture(autouse=True)
-def initialize_test(tmp_path):
-    database_path = tmp_path / 'nos.sqlite'
-    nos.path = database_path
-    print(database_path)
-
-
 def test_put_get_delete():
     # initially can not found
     assert nos.get('foo') is None
@@ -84,7 +77,7 @@ def test_list():
 def test_list_domains():
     nos.put({'name': 'foo'})
     nos.put({'name': '1'}, domain='number')
-    assert set(nos.domains) == set(['default', 'number'])
+    assert set(nos.domains) == set(['nos_meta', 'nos_default', 'number'])
 
 
 def test_field_link():
@@ -110,3 +103,9 @@ def test_field_link():
         {'name': 'Nevermind'},
         {'name': 'Bleach'},
     ]
+
+
+@pytest.fixture(autouse=True)
+def initialize_test(tmp_path):
+    database_path = tmp_path / 'nos.sqlite'
+    nos.path = database_path

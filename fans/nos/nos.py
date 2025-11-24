@@ -13,7 +13,7 @@ class Nos:
         self._store = None
 
     @property
-    def path(self):
+    def path(self) -> Path:
         """Return current database path"""
         return self._path
 
@@ -24,7 +24,7 @@ class Nos:
         self._store = None
 
     @property
-    def store(self):
+    def store(self) -> Store:
         """Return current Store"""
         if self._store is None:
             self._store = Store(self._path)
