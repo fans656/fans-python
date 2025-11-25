@@ -19,17 +19,20 @@ To initialize, construct a `tagging` instance passing the (peewee) database and 
 
 By default entity is represented by `int` key:
 
-    tagging.add_tag(1, 'odd')
-    tagging.add_tag(2, 'even', 'prime')
-    tagging.add_tag([3, 5, 7], 'prime')
+    tagging.add_tag(1, 'odd')               # add single tag to single entity
+    tagging.add_tag(2, 'even', 'prime')     # add multiple tags to single entity
+    tagging.add_tag([3, 5, 7], 'prime')     # add single tag to multiple entities
 
-but you can also specify key type when constructing `tagging`:
+you can also specify key type when constructing `tagging`:
 
-    dbutil.tagging(peewee.SqliteDatabase(':memory:'), key_type=str)
+    dbutil.tagging(database, key_type=str)
+    dbutil.tagging(database, key_type=float)
+    dbutil.tagging(database, key_type=(float, str))  # composite key
 
-    dbutil.tagging(peewee.SqliteDatabase(':memory:'), key_type=float)
+or by specifying target table:
 
-    dbutil.tagging(peewee.SqliteDatabase(':memory:'), key_type=(float, str))  # composite key
+    dbutil.tagging(database, target='person')
+    dbutil.tagging(database, target=Person)  # using peewee model
 
 Query entities is by the `.find` method:
 
@@ -55,6 +58,7 @@ without argument, `.tags()` return all existing tags:
     tagging.tags()  # ['even', 'odd', 'prime']
 """
 import operator
+import warnings
 import itertools
 import functools
 from typing import Optional
@@ -69,28 +73,95 @@ _EntityKey = str | int | float
 EntityKey = _EntityKey | tuple[_EntityKey]
 
 
+DEFAULT_TABLE_NAME = 'tag'
+
+
 class tagging:
 
     def __init__(
         self,
         database: 'peewee.SqliteDatabase',
-        table_name: str = 'tag',
-        key_type: type | list[type] = int,
+        table_name: str = DEFAULT_TABLE_NAME,
+        *,
+        target: str|peewee.Model = None,
+        key=int,
+        key_type=None,  # deprecated, use `key` instead
+        tag_col: str = 'tag',
     ):
+        key_cols = []
+
+        if key_type is not None:
+            warnings.warn('`key_type` deprecated, use `key` instead', DeprecationWarning, stacklevel=2)
+            key = None
+
+        if key is not None:
+            name_type_list_form = False
+            if isinstance(key, (tuple, list)):
+                if any(isinstance(d, (tuple, list)) for d in key):
+                    assert all(isinstance(d, (tuple, list)) for d in key), f'specify all keys in (name, type) form'
+                    name_type_list_form = True
+            
+            if name_type_list_form:
+                key_cols, key_type = [], []
+                for _key in key:
+                    if isinstance(_key, (tuple, list)):
+                        key_cols.append(_key[0])
+                        key_type.append(_key[1])
+                    else:
+                        key_type.append(_key)
+            elif isinstance(key, (tuple, list)):
+                key_type = key
+            else:
+                key_type = key
+
+        if target is not None:
+            if isinstance(target, str):
+                from fans.dbutil.introspect import models_from_database
+                models = models_from_database(database)
+                model = models[target]
+            elif isinstance(target, peewee.Model):
+                model = target
+            else:
+                raise TypeError(f'unsupported target type {type(target)}')
+            
+            if table_name == DEFAULT_TABLE_NAME:
+                table_name = f'{model._meta.table_name}_tag'
+
+            primary_key = model._meta.primary_key
+
+            if isinstance(primary_key, peewee.CompositeKey):
+                key_type = [
+                    _key_type_from_peewee_field(model._meta.fields[field_name])
+                    for field_name in primary_key.field_names
+                ]
+                key_cols = primary_key.field_names
+            else:
+                key_type = _key_type_from_peewee_field(primary_key)
+                key_cols = [primary_key.column_name]
+        
+        is_composite_key = isinstance(key_type, (tuple, list)) and len(key_type) > 1
+        
+        if not key_cols:
+            if is_composite_key:
+                key_cols = [f"key{i}" for i in range(len(key_type))]
+            else:
+                key_cols = ['key']
+
         self.database = database
         self.table_name = table_name
-        self.key_type = key_type
-        self.is_composite_key = isinstance(key_type, (tuple, list))
-        self.key_cols = [
-            f"key{i}" for i in range(len(key_type))
-        ] if self.is_composite_key else ['key0']
-        self.model = self._make_model(database, table_name, key_type)
+        self.is_composite_key = is_composite_key
+        self.key_cols = key_cols
+        self.key_types = key_type if is_composite_key else [key_type]
+        self.tag_col = _tag_col_from_key_cols(key_cols, tag_col)
+        self.cols = [*self.key_cols, self.tag_col]
+        self.model = self._make_model(database, table_name)
 
         self.database.bind([self.model])
         self.database.create_tables([self.model])
 
-    def add_tag(self, keys_or_key, *tags, chunk_size=500):
+    def add_tag(self, arg, *tags, chunk_size=500):
         if tags:
+            keys_or_key = arg
             if isinstance(keys_or_key, list):
                 keys = keys_or_key
             else:
@@ -98,12 +169,12 @@ class tagging:
 
             items = list(itertools.product(keys, tags))
             if self.is_composite_key:
-                items = [_item_from_tuple(*d) for d in items]
+                items = [(*item[0], item[1]) for item in items]
 
             self.model.insert_many(items).on_conflict_ignore().execute()
-        else:
-            tag_items = keys_or_key
-            for chunk in chunks(tag_items, chunk_size):
+        else:  # batch add
+            items = arg
+            for chunk in chunks(items, chunk_size):
                 self.model.insert_many(chunk).on_conflict_ignore().execute()
 
     def find(self, expr: str, return_query: bool = False):
@@ -128,7 +199,7 @@ class tagging:
             if self.is_composite_key:
                 return [tuple(getattr(d, key_col) for key_col in self.key_cols) for d in query]
             else:
-                return [d.key0 for d in query]
+                return [getattr(d, self.key_cols[0]) for d in query]
 
     def tags(self, key: Optional[EntityKey] = ...):
         m = self.model
@@ -142,39 +213,20 @@ class tagging:
                     ])
                 )
             else:
-                query = query.where(m.key0 == key)
+                query = query.where(getattr(m, self.key_cols[0]) == key)
         return [d.tag for d in query]
 
-    def _make_model(self, database, table_name, key_type):
+    def _make_model(self, database, table_name):
         Meta = type('Meta', (), {
-            'primary_key': peewee.CompositeKey(*self.key_cols, 'tag'),
+            'primary_key': peewee.CompositeKey(*self.key_cols, self.tag_col),
         })
 
-        cls_body = {
-            'Meta': Meta,
-        }
-        if self.is_composite_key:
-            for i, _key_type in enumerate(key_type):
-                cls_body[f"key{i}"] = _key_type_to_peewee_field(_key_type)
-        else:
-            cls_body['key0'] = _key_type_to_peewee_field(key_type)
+        body = {'Meta': Meta}
+        for key_col, key_type in zip(self.key_cols, self.key_types):
+            body[key_col] = _key_type_to_peewee_field(key_type)
+        body[self.tag_col] = peewee.TextField(index=True)
 
-        cls_body['tag'] = peewee.TextField(index=True)
-
-        Model = type(table_name, (peewee.Model,), cls_body)
-
-        return Model
-
-
-def _key_type_to_peewee_field(key_type):
-    if key_type is int:
-        return peewee.IntegerField()
-    elif key_type is str:
-        return peewee.TextField()
-    elif key_type is float:
-        return peewee.FloatField()
-    else:
-        raise ValueError(f'unsupported key type {key_type}')
+        return type(table_name, (peewee.Model,), body)
 
 
 def _tree_to_having_cond(tree, m):
@@ -195,8 +247,34 @@ def _tree_to_having_cond(tree, m):
         raise TypeError(f"Invalid tree node type: {type(tree)}")
 
 
-def _item_from_tuple(sub_keys, tag):
-    ret = {'tag': tag}
-    for i, sub_key in enumerate(sub_keys):
-        ret[f"key{i}"] = sub_key
+def _key_type_to_peewee_field(key_type):
+    if key_type is int:
+        return peewee.IntegerField()
+    elif key_type is str:
+        return peewee.TextField()
+    elif key_type is float:
+        return peewee.FloatField()
+    else:
+        raise ValueError(f'unsupported key type {key_type}')
+
+
+def _key_type_from_peewee_field(field):
+    match field.field_type:
+        case 'INT'|'AUTO':
+            return int
+        case 'TEXT':
+            return str
+        case 'FLOAT':
+            return float
+        case _:
+            raise NotImplementedError(f'unsupported field type {field}')
+
+
+def _tag_col_from_key_cols(key_cols: list[str], tag_col: str):
+    ret = tag_col
+    key_cols = set(key_cols)
+    for i in itertools.count():
+        if ret not in key_cols:
+            break
+        ret = f'{tag_col}{i}'
     return ret

@@ -120,17 +120,17 @@ def test_key_types():
     assert list(db.execute_sql('pragma table_info(tag)'))[0][2] == 'INTEGER'
 
     db = peewee.SqliteDatabase(':memory:')
-    tagging = dbutil.tagging(db, key_type=str)
+    tagging = dbutil.tagging(db, key=str)
     assert list(db.execute_sql('pragma table_info(tag)'))[0][2] == 'TEXT'
 
     db = peewee.SqliteDatabase(':memory:')
-    tagging = dbutil.tagging(db, key_type=float)
+    tagging = dbutil.tagging(db, key=float)
     assert list(db.execute_sql('pragma table_info(tag)'))[0][2] == 'REAL'
 
 
 def test_composite_key():
     db = peewee.SqliteDatabase(':memory:')
-    tagging = dbutil.tagging(db, key_type=(float, str))
+    tagging = dbutil.tagging(db, key=(float, str))
 
     tagging.add_tag((1.5, 'foo'), 'red')
     tagging.add_tag((1.5, 'bar'), 'red')
@@ -152,3 +152,73 @@ def test_batch_tagging():
     ])
     assert set(tagging.find('foo')) == {1, 2}
     assert set(tagging.find('bar')) == {1}
+
+
+class Test_derive_tagging_table_from_target:
+
+    def test_simple_key(self):
+        database = peewee.SqliteDatabase(':memory:')
+        
+        class Person(peewee.Model):
+            
+            name = peewee.TextField(primary_key=True)
+            age = peewee.IntegerField()
+        
+        database.bind([Person])
+        database.create_tables([Person])
+        
+        tagging = dbutil.tagging(database, target='person')
+        tagging.add_tag([
+            ('foo', 'f'),
+            ('bar', 'b'),
+        ])
+        assert set(tagging.find('f')) == {'foo'}
+        assert set(tagging.find('b')) == {'bar'}
+
+        assert tagging.table_name == 'person_tag'
+        assert set(tagging.model._meta.columns.keys()) == {'name', 'tag'}
+
+    def test_composite_key(self):
+        database = peewee.SqliteDatabase(':memory:')
+        
+        class Person(peewee.Model):
+            
+            class Meta:
+                
+                primary_key = peewee.CompositeKey('first_name', 'last_name')
+            
+            first_name = peewee.TextField()
+            last_name = peewee.TextField()
+            age = peewee.IntegerField()
+        
+        database.bind([Person])
+        database.create_tables([Person])
+        
+        tagging = dbutil.tagging(database, target='person')
+        tagging.add_tag([
+            ('foo', 'oo', 'f'),
+            ('bar', 'rr', 'b'),
+        ])
+        assert set(tagging.find('f')) == {('foo', 'oo')}
+        assert set(tagging.find('b')) == {('bar', 'rr')}
+
+        assert tagging.table_name == 'person_tag'
+        assert set(tagging.model._meta.columns.keys()) == {'first_name', 'last_name', 'tag'}
+
+    def test_occupied_tag_column_name(self):
+        database = peewee.SqliteDatabase(':memory:')
+        
+        class Foo(peewee.Model):
+            
+            class Meta:
+                
+                primary_key = peewee.CompositeKey('uid', 'tag')
+            
+            uid = peewee.TextField()
+            tag = peewee.IntegerField()
+        
+        database.bind([Foo])
+        database.create_tables([Foo])
+        
+        tagging = dbutil.tagging(database, target='foo')
+        assert set(tagging.model._meta.columns.keys()) == {'uid', 'tag', 'tag0'}

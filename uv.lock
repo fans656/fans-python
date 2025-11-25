@@ -354,6 +354,7 @@ dependencies = [
     { name = "janus" },
     { name = "msgpack" },
     { name = "peewee" },
+    { name = "playhouse" },
     { name = "pytz" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -367,7 +368,6 @@ dependencies = [
 dev = [
     { name = "duf" },
     { name = "freezegun" },
-    { name = "playhouse" },
     { name = "pyside6" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -389,6 +389,7 @@ requires-dist = [
     { name = "janus", specifier = ">=2.0.0" },
     { name = "msgpack", specifier = ">=1.1.0" },
     { name = "peewee", specifier = ">=3.17.8" },
+    { name = "playhouse", specifier = ">=0.1.0" },
     { name = "pytz", specifier = ">=2024.2" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "requests", specifier = ">=2.32.3" },
@@ -402,7 +403,6 @@ requires-dist = [
 dev = [
     { name = "duf", specifier = ">=0.0.14" },
     { name = "freezegun", specifier = ">=1.5.1" },
-    { name = "playhouse", specifier = ">=0.1.0" },
     { name = "pyside6", specifier = ">=6.10.0" },
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "pytest-asyncio", specifier = ">=0.25.2" },

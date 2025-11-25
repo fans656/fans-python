@@ -1,3 +1,6 @@
+"""
+See also .venv/bin/pwiz.py
+"""
 import peewee
 from playhouse.reflection import Introspector
 
@@ -17,7 +20,14 @@ def models_from_database(database: 'peewee.SqliteDatabase'):
 
 def _create_model_class(table_name, model_name, meta, introspector):
     body = {}
+
     primary_keys = meta.primary_keys[table_name]
+    
+    if len(primary_keys) > 1:
+        body['Meta'] = type('Meta', (), {
+            'primary_key': peewee.CompositeKey(*primary_keys),
+        })
+
     for name, column in meta.columns[table_name].items():
         if (
             name in primary_keys
@@ -26,5 +36,10 @@ def _create_model_class(table_name, model_name, meta, introspector):
             and column.field_class in introspector.pk_classes
         ):
             continue
+
+        if column.primary_key and len(primary_keys) > 1:
+            column.primary_key = False
+
         body[name] = column.field_class(**column.get_field_parameters())
+
     return type(model_name, (peewee.Model,), body)
