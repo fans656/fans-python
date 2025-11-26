@@ -39,7 +39,7 @@ def test_label():
     nos.label('foo', {'city': 'chengdu'})
     nos.label('baz', {'city': 'chengdu'})
 
-    assert nos.search({'label': {'city': 'chengdu'}}) == [
+    assert nos.find({'label': {'city': 'chengdu'}}) == [
         {'name': 'baz'},
         {'name': 'foo'},
     ]
@@ -52,7 +52,7 @@ def test_tag():
 
     nos.tag('bar', 'm5')
 
-    assert nos.search({'tag': 'm5'}) == [
+    assert nos.find({'tag': 'm5'}) == [
         {'name': 'bar'},
     ]
 

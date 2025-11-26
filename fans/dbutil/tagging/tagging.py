@@ -117,7 +117,7 @@ class tagging:
                 from fans.dbutil.introspect import models_from_database
                 models = models_from_database(database)
                 model = models[target]
-            elif isinstance(target, peewee.Model):
+            elif isinstance(target, peewee.ModelBase):
                 model = target
             else:
                 raise TypeError(f'unsupported target type {type(target)}')

@@ -54,10 +54,10 @@ Note:
 Sample:
 
     nos.tag('foo', 'simple')
-    nos.search({'tag': 'simple'})
+    nos.find({'tag': 'simple'})
 
     nos.label('foo', 'city', 'chengdu')
-    nos.search({'label': {'city': 'chengdu'}})
+    nos.find({'label': {'city': 'chengdu'}})
 
 ## Link
 

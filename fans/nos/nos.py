@@ -97,9 +97,9 @@ class Nos:
         """Add tags to a doc"""
         return self._get_collection(domain).tag(doc_key, *tags)
 
-    def search(self, query: dict, domain=DEFAULT_DOMAIN):
-        """Search doc (by label/tag)"""
-        return self._get_collection(domain).search(query)
+    def find(self, query: dict, domain=DEFAULT_DOMAIN):
+        """Find doc (by label/tag)"""
+        return self._get_collection(domain).find(query)
 
     def list(self, domain=DEFAULT_DOMAIN):
         return self._get_collection(domain).list()

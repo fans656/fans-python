@@ -1,6 +1,8 @@
 import json
 from typing import Callable
 
+from fans import dbutil
+
 
 def default_get_item_id(item: dict):
     for id_key in ['id', 'key', 'name']:
@@ -27,19 +29,21 @@ class Collection:
             self,
             name,
             *,
+            database,
             Item,
-            Tag,
             Label,
             get_item_id: Callable[[dict], any] = default_get_item_id,
             insert_dict_from_item: Callable[['Collection', dict], dict] = default_insert_dict_from_item,
             item_id_equal: Callable[['Item', any], bool] = default_item_id_equal,
     ):
         self.name = name
+        self.database = database
         
         self.Item = Item
-        self.Tag = Tag
         self.Label = Label
         
+        self.__tagging = None
+
         self._get_item_id = get_item_id
         self._insert_dict_from_item = insert_dict_from_item
         self._item_id_equal = item_id_equal
@@ -65,12 +69,9 @@ class Collection:
         } for label_key, label_value in labels.items()]).on_conflict_ignore().execute()
 
     def tag(self, item_id, *tags):
-        self.Tag.insert_many([{
-            'item_id': item_id,
-            'tag': tag,
-        } for tag in tags]).on_conflict_ignore().execute()
+        self._tagging.add_tag(item_id, *tags)
 
-    def search(self, query: dict):
+    def find(self, query: dict):
         if 'label' in query:
             Item = self.Item
             Label = self.Label
@@ -86,29 +87,25 @@ class Collection:
             return items
         elif 'tag' in query:
             Item = self.Item
-            Tag = self.Tag
-
-            tags = query['tag']
-            if isinstance(tags, str):
-                tags = [tags]
-
-            pred = True
-            for tag in tags:
-                pred &= Tag.tag == tag
-
-            query = Item.select(Item.data).where(
-                Item.id << Tag.select(Tag.item_id).where(pred)
-            ).order_by(Item.id)
+            item_ids = self._tagging.find(query['tag'], return_query=True)
+            # TODO: handle composite key
+            query = Item.select(Item.data).where(Item.id << item_ids).order_by(Item.id)
             items = [json.loads(d.data) for d in query]
             return items
         else:
-            raise NotImplementedError(f'search {query}')
+            raise NotImplementedError(f'find {query}')
 
     def list(self):
         Item = self.Item
         for item in Item.select(Item.data).order_by(Item.id):
             yield json.loads(item.data)
     
+    @property
+    def _tagging(self):
+        if self.__tagging is None:
+            self.__tagging = dbutil.tagging(self.database, f'{self.name}_tag', target=self.Item)
+        return self.__tagging
+
     def __iter__(self):
         yield from self.list()
 

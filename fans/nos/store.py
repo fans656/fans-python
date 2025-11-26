@@ -29,7 +29,11 @@ class Store:
 
     def get_collection(self, name: str = cons.DEFAULT_DOMAIN):
         if name not in self._name_to_collection:
-            collection = Collection(name, **self._initialize_collection(name))
+            collection = Collection(
+                name,
+                **self._initialize_collection(name),
+                database=self.database,
+            )
             self._name_to_collection[name] = collection
             self.meta[f'doc_{name}'] = name
 
@@ -108,13 +112,6 @@ class Store:
             'id': peewee.TextField(primary_key=True),
             'data': peewee.TextField(),
         })
-        Tag = type(f'__tag__{name}', (peewee.Model,), {
-            'Meta': type('Meta', (), {
-                'primary_key': peewee.CompositeKey('item_id', 'tag'),
-            }),
-            'item_id': peewee.TextField(index=True),
-            'tag': peewee.TextField(index=True),
-        })
         Label = type(f'__label__{name}', (peewee.Model,), {
             'Meta': type('Meta', (), {
                 'primary_key': peewee.CompositeKey('item_id', 'label_key', 'label_value'),
@@ -123,12 +120,12 @@ class Store:
             'label_key': peewee.TextField(index=True),
             'label_value': peewee.TextField(index=True),
         })
-        tables = [Item, Tag, Label]
+        tables = [Item, Label]
 
         self.database.bind(tables)
         self.database.create_tables(tables)
         
-        return bunch(Item=Item, Tag=Tag, Label=Label)
+        return bunch(Item=Item, Label=Label)
 
 
 class Meta:
