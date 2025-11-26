@@ -1,6 +1,34 @@
+import pytest
 import peewee
 
 from fans import dbutil
+from fans.dbutil.tagging.tagging import (
+    _ensure_flat_tuples,
+)
+
+
+_confs = [
+    {'composite': False},
+    {'composite': True},
+]
+
+
+@pytest.fixture
+def tagging(request):
+    conf = request.node.callspec.params['conf']
+    if conf['composite']:
+        return dbutil.tagging(peewee.SqliteDatabase(':memory:'), key=(int, float))
+    else:
+        return dbutil.tagging(peewee.SqliteDatabase(':memory:'))
+
+
+@pytest.fixture
+def k(request):
+    conf = request.node.callspec.params['conf']
+    if conf['composite']:
+        return lambda d: (d, float(d))
+    else:
+        return lambda d: d
 
 
 def test_usage():
@@ -53,11 +81,11 @@ def test_usage():
     assert set(tagging.find('odd (cube | square)')) == {1,9}
     assert set(tagging.find('even !factorial !cube')) == {4}
 
-
     # test get tags
     assert set(tagging.tags(0)) == {'even', 'square', 'cube'}
     assert set(tagging.tags(1)) == {'odd', 'square', 'cube', 'factorial'}
     assert set(tagging.tags(6)) == {'even', 'perfect', 'factorial'}
+    assert set(tagging.tags()) == {'even', 'odd', 'prime', 'square', 'cube', 'perfect', 'factorial'}
 
 
 def test_specify_table_name():
@@ -69,18 +97,6 @@ def test_specify_table_name():
     tagging = dbutil.tagging(db, 'foo')
     assert 'foo' in set(db.get_tables())
     assert 'tag' not in set(db.get_tables())
-
-
-def test_get_all_tags():
-    db = peewee.SqliteDatabase(':memory:')
-    tagging = dbutil.tagging(db)
-    tagging.add_tag(1, 'foo')
-    tagging.add_tag(1, 'bar')
-    tagging.add_tag(2, 'bar')
-    tagging.add_tag(2, 'baz')
-    tags = tagging.tags()
-    assert len(tags) == 3
-    assert set(tags) == {'foo', 'bar', 'baz'}
 
 
 def test_can_return_query():
@@ -142,16 +158,117 @@ def test_composite_key():
     assert set(tagging.tags()) == {'red', 'blue'}
 
 
-def test_batch_tagging():
-    db = peewee.SqliteDatabase(':memory:')
-    tagging = dbutil.tagging(db)
-    tagging.add_tag([
-        (1, 'foo'),
-        (1, 'bar'),
-        (2, 'foo'),
-    ])
-    assert set(tagging.find('foo')) == {1, 2}
-    assert set(tagging.find('bar')) == {1}
+class Test_add_tag:
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_single_key_single_tag(self, tagging, k, conf):
+        tagging.add_tag(k(1), 'foo')
+        assert set(tagging.find('foo')) == {k(1)}
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_single_key_multiple_tags(self, tagging, k, conf):
+        tagging.add_tag(k(1), 'foo', 'bar')
+        assert set(tagging.find('foo')) == {k(1)}
+        assert set(tagging.find('bar')) == {k(1)}
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_multiple_keys_single_tag(self, tagging, k, conf):
+        tagging.add_tag([k(1), k(2)], 'foo')
+        assert set(tagging.find('foo')) == {k(1), k(2)}
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_multiple_keys_multiple_tags(self, tagging, k, conf):
+        tagging.add_tag([k(1), k(2)], 'foo', 'bar')
+        assert set(tagging.find('foo')) == {k(1), k(2)}
+        assert set(tagging.find('bar')) == {k(1), k(2)}
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_batch_add(self, tagging, k, conf):
+        tagging.add_tag([
+            (k(1), 'foo'),
+            (k(1), 'bar'),
+            (k(2), 'foo'),
+        ])
+        assert set(tagging.find('foo')) == {k(1), k(2)}
+        assert set(tagging.find('bar')) == {k(1)}
+
+    def test_batch_add_flatten_composite_key(self):
+        tagging = dbutil.tagging(peewee.SqliteDatabase(':memory:'), key=(int, float))
+        tagging.add_tag([
+            (1, 1.0, 'foo'),
+            (1, 1.0, 'bar'),
+            (2, 2.0, 'foo'),
+        ])
+        assert set(tagging.find('foo')) == {(1, 1.0), (2, 2.0)}
+        assert set(tagging.find('bar')) == {(1, 1.0)}
+
+
+class Test_remove_tag:
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_single_key_single_tag(self, tagging, k, conf):
+        tagging.add_tag(k(1), 'foo')
+        tagging.add_tag(k(1), 'bar')
+        tagging.remove_tag(k(1), 'foo')
+        assert not tagging.find('foo')
+        assert set(tagging.find('bar')) == {k(1)}
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_single_key_multiple_tags(self, tagging, k, conf):
+        tagging.add_tag(k(1), 'foo', 'bar', 'baz')
+        tagging.remove_tag(k(1), 'foo', 'bar')
+        assert not tagging.find('foo')
+        assert not tagging.find('bar')
+        assert set(tagging.find('baz')) == {k(1)}
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_single_key_all_tags(self, tagging, k, conf):
+        tagging.add_tag(k(1), 'foo', 'bar')
+        tagging.add_tag(k(2), 'bar')
+        tagging.remove_tag(k(1))
+        assert not tagging.find('foo')
+        assert set(tagging.find('bar')) == {k(2)}
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_multiple_keys_single_tag(self, tagging, k, conf):
+        tagging.add_tag(k(1), 'foo')
+        tagging.add_tag(k(2), 'foo')
+        tagging.add_tag(k(3), 'foo')
+        tagging.add_tag(k(1), 'bar')
+        tagging.remove_tag([k(1), k(2)], 'foo')
+        assert set(tagging.find('foo')) == {k(3)}
+        assert set(tagging.find('bar')) == {k(1)}
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_multiple_keys_mutilpe_tags(self, tagging, k, conf):
+        tagging.add_tag(k(1), 'foo')
+        tagging.add_tag(k(2), 'foo')
+        tagging.add_tag(k(3), 'foo')
+        tagging.add_tag(k(1), 'bar')
+        tagging.add_tag(k(1), 'baz')
+        tagging.remove_tag([k(1), k(2)], 'foo', 'bar')
+        assert set(tagging.find('foo')) == {k(3)}
+        assert not tagging.find('bar')
+        assert set(tagging.find('baz')) == {k(1)}
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_multiple_keys_all_tags(self, tagging, k, conf):
+        tagging.add_tag(k(1), 'foo')
+        tagging.add_tag(k(2), 'foo')
+        tagging.add_tag(k(3), 'foo')
+        tagging.add_tag(k(1), 'bar')
+        tagging.add_tag(k(1), 'baz')
+        tagging.remove_tag([k(1), k(2)])
+        assert set(tagging.find('foo')) == {k(3)}
+        assert not tagging.find('bar')
+        assert not tagging.find('baz')
+    
+    @pytest.mark.parametrize('conf', _confs)
+    def test_chunked(self, tagging, k, conf):
+        n = 100
+        tagging.add_tag([k(i) for i in range(n)], 'foo')
+        tagging.remove_tag([k(i) for i in range(n - 1)])
+        assert set(tagging.find('foo')) == {k(n - 1)}
 
 
 class Test_derive_tagging_table_from_target:
@@ -222,3 +339,26 @@ class Test_derive_tagging_table_from_target:
         
         tagging = dbutil.tagging(database, target='foo')
         assert set(tagging.model._meta.columns.keys()) == {'uid', 'tag', 'tag0'}
+
+
+def test_ensure_flat_tuples():
+    assert list(_ensure_flat_tuples([])) == []
+
+    assert list(_ensure_flat_tuples((1, 2, 3))) == [1, 2, 3]
+    assert list(_ensure_flat_tuples([1, 2, 3])) == [1, 2, 3]
+
+    assert list(_ensure_flat_tuples([
+        (1, 'a'),
+        (2, 'b'),
+    ])) == [
+        (1, 'a'),
+        (2, 'b'),
+    ]
+
+    assert list(_ensure_flat_tuples([
+        ((1, 1), 'a'),
+        ((2, 2), 'b'),
+    ])) == [
+        (1, 1, 'a'),
+        (2, 2, 'b'),
+    ]

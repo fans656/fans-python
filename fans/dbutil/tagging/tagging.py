@@ -69,10 +69,6 @@ from fans.fn import chunks
 from .parse import parse_query_expr
 
 
-_EntityKey = str | int | float
-EntityKey = _EntityKey | tuple[_EntityKey]
-
-
 DEFAULT_TABLE_NAME = 'tag'
 
 
@@ -88,6 +84,8 @@ class tagging:
         key_type=None,  # deprecated, use `key` instead
         tag_col: str = 'tag',
     ):
+        assert isinstance(table_name, str)
+
         key_cols = []
 
         if key_type is not None:
@@ -160,22 +158,91 @@ class tagging:
         self.database.create_tables([self.model])
 
     def add_tag(self, arg, *tags, chunk_size=500):
+        """
+        Add tag(s) for given key(s).
+
+        Single key, single tag:
+        
+            tagging.add_tag(1, 'foo')
+            tagging.add_tag((1, 1.0), 'foo')  # use tuple for composite key
+        
+        Single key, multiple tags:
+        
+            tagging.add_tag(1, 'foo', 'bar')
+        
+        Multiple keys, single tag:
+        
+            tagging.add_tag([1, 2], 'foo')  # use list for multiple keys
+        
+        Multiple keys, multiple tags:
+        
+            tagging.add_tag([1, 2], 'foo', 'bar')
+        
+        Batch mode (more performant):
+        
+            tagging.add_tag([(1, 'foo'), (2, 'bar')])  # tag as last value in item tuple
+            tagging.add_tag([(1, 1.0, 'foo'), (2, 2.0, 'bar')])  # composite key (flatten)
+            tagging.add_tag([((1, 1.0), 'foo'), ((2, 2.0), 'bar')])  # composite key (non-flatten)
+        """
         if tags:
-            keys_or_key = arg
-            if isinstance(keys_or_key, list):
-                keys = keys_or_key
-            else:
-                keys = [keys_or_key]
-
-            items = list(itertools.product(keys, tags))
-            if self.is_composite_key:
-                items = [(*item[0], item[1]) for item in items]
-
+            keys = arg if isinstance(arg, list) else [arg]
+            items = _ensure_flat_tuples(itertools.product(keys, tags))
             self.model.insert_many(items).on_conflict_ignore().execute()
-        else:  # batch add
+        else:  # batch mode
             items = arg
-            for chunk in chunks(items, chunk_size):
+            for chunk in chunks(_ensure_flat_tuples(items), chunk_size):
                 self.model.insert_many(chunk).on_conflict_ignore().execute()
+    
+    def remove_tag(self, key, *tags, chunk_size=50):
+        """
+        Remove tag(s) for given key(s).
+        
+        Single key, single tag:
+        
+            tagging.remove_tag(1, 'foo')
+        
+        Single key, multiple tags:
+        
+            tagging.remove_tag(1, 'foo', 'bar')
+        
+        Single key, all tags:
+        
+            tagging.remove_tag(1)
+        
+        Multiple keys, single tag:
+        
+            tagging.remove_tag([1, 2], 'foo')
+        
+        Multiple keys, multiple tags:
+        
+            tagging.remove_tag([1, 2], 'foo', 'bar')
+        
+        Multiple keys, all tags:
+        
+            tagging.remove_tag([1, 2])
+        """
+        keys = key if isinstance(key, list) else [key]
+
+        if tags:
+            keys = _ensure_flat_tuples(itertools.product(keys, tags))
+            cols = self.cols
+        else:
+            cols = self.key_cols
+
+        for chunk in chunks(keys, chunk_size):
+            cols_str = ','.join(cols)
+            vals_str = ','.join([_as_sql_tuple(d) for d in chunk])
+            pred_str = ' and '.join([
+                f'{self.table_name}.{col} = to_delete.{col}' for col in cols
+            ])
+            sql = f'''
+                with to_delete({cols_str}) as (values {vals_str})
+                delete from {self.table_name}
+                where exists (
+                    select 1 from to_delete where {pred_str}
+                )
+            '''
+            self.database.execute_sql(sql)
 
     def find(self, expr: str, return_query: bool = False):
         m = self.model
@@ -201,10 +268,13 @@ class tagging:
             else:
                 return [getattr(d, self.key_cols[0]) for d in query]
 
-    def tags(self, key: Optional[EntityKey] = ...):
+    def tags(self, key=None) -> list[str]:
+        """
+        Get all existing tags, or tags of a given key.
+        """
         m = self.model
         query = m.select(m.tag).distinct()
-        if key is not ...:
+        if key is not None:
             if self.is_composite_key:
                 query = query.where(
                     functools.reduce(operator.and_, [
@@ -278,3 +348,18 @@ def _tag_col_from_key_cols(key_cols: list[str], tag_col: str):
             break
         ret = f'{tag_col}{i}'
     return ret
+
+
+def _ensure_flat_tuples(items):
+    items = iter(items)
+    item = next(items, None)
+    if item is None:
+        return
+    if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[0], (tuple, list)):
+        yield from ((*d[0], d[1]) for d in (item, *items))
+    else:
+        yield from (item, *items)
+
+
+def _as_sql_tuple(value):
+    return f"({str(value).lstrip('(').rstrip(')')})"
