@@ -262,11 +262,11 @@ class tagging:
 
         if return_query:
             return query
+
+        if self.is_composite_key:
+            return [tuple(getattr(d, key_col) for key_col in self.key_cols) for d in query]
         else:
-            if self.is_composite_key:
-                return [tuple(getattr(d, key_col) for key_col in self.key_cols) for d in query]
-            else:
-                return [getattr(d, self.key_cols[0]) for d in query]
+            return [getattr(d, self.key_cols[0]) for d in query]
 
     def tags(self, key=None) -> list[str]:
         """

@@ -125,7 +125,7 @@ class Store:
         self.database.bind(tables)
         self.database.create_tables(tables)
         
-        return bunch(Item=Item, Label=Label)
+        return bunch(model=Item, Label=Label)
 
 
 class Meta:
