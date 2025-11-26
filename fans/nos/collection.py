@@ -73,27 +73,33 @@ class Collection:
 
     def find(self, query: dict):
         if 'label' in query:
-            Item = self.Item
-            Label = self.Label
-
-            pred = True
-            for label_key, label_value in query['label'].items():
-                pred &= (Label.label_key == label_key) & (Label.label_value == label_value)
-
-            query = Item.select(Item.data).where(
-                Item.id << Label.select(Label.item_id).where(pred)
-            ).order_by(Item.id)
-            items = [json.loads(d.data) for d in query]
-            return items
+            return self.find_by_label(query['label'])
         elif 'tag' in query:
-            Item = self.Item
-            item_ids = self._tagging.find(query['tag'], return_query=True)
-            # TODO: handle composite key
-            query = Item.select(Item.data).where(Item.id << item_ids).order_by(Item.id)
-            items = [json.loads(d.data) for d in query]
-            return items
+            return self.find_by_tag(query['tag'])
         else:
             raise NotImplementedError(f'find {query}')
+
+    def find_by_label(self, labels: dict):
+        Item = self.Item
+        Label = self.Label
+
+        pred = True
+        for label_key, label_value in labels.items():
+            pred &= (Label.label_key == label_key) & (Label.label_value == label_value)
+
+        query = Item.select(Item.data).where(
+            Item.id << Label.select(Label.item_id).where(pred)
+        ).order_by(Item.id)
+        items = [json.loads(d.data) for d in query]
+        return items
+
+    def find_by_tag(self, query: str):
+        Item = self.Item
+        item_ids = self._tagging.find(query, return_query=True)
+        # TODO: handle composite key
+        query = Item.select(Item.data).where(Item.id << item_ids).order_by(Item.id)
+        items = [json.loads(d.data) for d in query]
+        return items
 
     def list(self):
         Item = self.Item
