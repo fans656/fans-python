@@ -11,10 +11,10 @@ class Collection:
     
     def __init__(self, table_name, database, *, _store_level_cache=None, **options):
         # option 'key' - item field name which will be used as key,
-        # e.g. {'id': 1, ...} -> 1 using 'id'.
+        #     e.g. {'id': 1, ...} -> 1 using 'id'.
         # If None then will search for 'id', 'key', 'name' in order.
         # If str then will use the given field name,
-        # e.g. {'node_id': 123, ...} -> 123 using 'node_id'.
+        #     e.g. {'node_id': 123, ...} -> 123 using 'node_id'.
         # If list[str] then will use the given field names to search in order.
         options.setdefault('key', ['id', 'key', 'name'])
         if not isinstance(options['key'], (tuple, list)):

@@ -10,70 +10,30 @@ CONFS = [
 ]
 
 
-@pytest.fixture
-def c(request):
-    if hasattr(request.node, 'callspec'):
-        conf = request.node.callspec.params['conf']
-        if conf['composite_key']:
-            database = peewee.SqliteDatabase(':memory:')
-            table = type('foo', (peewee.Model,), {
-                'Meta': type('Meta', (), {
-                    'primary_key': peewee.CompositeKey('id0', 'id1'),
-                }),
-                'id0': peewee.IntegerField(),
-                'id1': peewee.FloatField(),
-                'val': peewee.IntegerField(),
-            })
-            database.bind([table])
-            database.create_tables([table])
-            return Collection('foo', database)
-
-    return Collection('foo', peewee.SqliteDatabase(':memory:'), auto_key_type=peewee.IntegerField)
-
-
-@pytest.fixture
-def item(request):
-    conf = request.node.callspec.params['conf']
-    if conf['composite_key']:
-        def item(i, **overrides):
-            return {'id0': i, 'id1': float(i), 'val': i, **overrides}
-    else:
-        def item(i, **overrides):
-            return {'id': i, 'val': i, **overrides}
-    return item
-
-
-@pytest.fixture
-def key(request):
-    conf = request.node.callspec.params['conf']
-    if conf['composite_key']:
-        return lambda d: (d, float(d))
-    else:
-        return lambda d: d
-
-
-@pytest.fixture
-def keys(key):
-    return lambda keys: [key(d) for d in keys]
-
-
-def test_simple_usage():
+def test_usage_basic():
     c = Collection('foo', peewee.SqliteDatabase(':memory:'))
 
+    # put
     c.put({'name': 'foo', 'age': 3})
     c.put({'name': 'bar', 'age': 5})
     
+    # get
     assert c.get('foo') == {'name': 'foo', 'age': 3}
     assert c.get('bar') == {'name': 'bar', 'age': 5}
 
-    assert len(c) == 2
+    # count
+    assert c.count() == 2
+
+    # remove
     c.remove('foo')
-    assert len(c) == 1
+    assert c.count() == 1
 
 
-def test_from_existing_database():
+def test_usage_from_existing_database():
     database = peewee.SqliteDatabase(':memory:')
     
+    #-------------------- prepare database
+
     class Person(peewee.Model):
         
         class Meta:
@@ -91,8 +51,13 @@ def test_from_existing_database():
         {'forename': 'Moby', 'surname': 'Dick'},
     ]).execute()
 
+    #-------------------- collection from existing database
+
     c = Collection('person', database)
+
+    # use tuple for composite key
     assert c.get(('Alex', 'Honnold')) == {'forename': 'Alex', 'surname': 'Honnold'}
+
     assert c.get([
         ('Moby', 'Dick'),
         ('Alex', 'Honnold'),
@@ -100,6 +65,17 @@ def test_from_existing_database():
         {'forename': 'Moby', 'surname': 'Dick'},
         {'forename': 'Alex', 'surname': 'Honnold'},
     ]
+
+
+def test_usage_auto_migration():
+    database = peewee.SqliteDatabase(':memory:')
+
+    c = Collection('foo', database)
+    c.put({'name': 'foo', 'age': 3})
+
+    # schema updated: age as separate column using index
+    c = Collection('foo', database)
+    c.put({'name': 'bar', 'age': 5})
 
 
 class Test_get:
@@ -185,3 +161,50 @@ class Test_misc:
         c = Collection('foo', peewee.SqliteDatabase(':memory:'), on_conflict='ignore')
         assert c._opt('on_conflict') == 'ignore'
         assert c._opt('on_conflict', {'on_conflict': 'replace'}) == 'replace'
+
+
+@pytest.fixture
+def c(request):
+    if hasattr(request.node, 'callspec'):
+        conf = request.node.callspec.params['conf']
+        if conf['composite_key']:
+            database = peewee.SqliteDatabase(':memory:')
+            table = type('foo', (peewee.Model,), {
+                'Meta': type('Meta', (), {
+                    'primary_key': peewee.CompositeKey('id0', 'id1'),
+                }),
+                'id0': peewee.IntegerField(),
+                'id1': peewee.FloatField(),
+                'val': peewee.IntegerField(),
+            })
+            database.bind([table])
+            database.create_tables([table])
+            return Collection('foo', database)
+
+    return Collection('foo', peewee.SqliteDatabase(':memory:'), auto_key_type=peewee.IntegerField)
+
+
+@pytest.fixture
+def item(request):
+    conf = request.node.callspec.params['conf']
+    if conf['composite_key']:
+        def item(i, **overrides):
+            return {'id0': i, 'id1': float(i), 'val': i, **overrides}
+    else:
+        def item(i, **overrides):
+            return {'id': i, 'val': i, **overrides}
+    return item
+
+
+@pytest.fixture
+def key(request):
+    conf = request.node.callspec.params['conf']
+    if conf['composite_key']:
+        return lambda d: (d, float(d))
+    else:
+        return lambda d: d
+
+
+@pytest.fixture
+def keys(key):
+    return lambda keys: [key(d) for d in keys]
