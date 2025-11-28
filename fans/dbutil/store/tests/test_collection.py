@@ -26,6 +26,7 @@ class Test_get:
 
         c.put({'id': 2, 'val': 2})
         assert c.get([1, 2]) == [{'id': 1, 'val': 1}, {'id': 2, 'val': 2}]  # get multiple
+        assert c.get([2, 1]) == [{'id': 2, 'val': 2}, {'id': 1, 'val': 1}]  # same order as given keys
 
 
 class Test_put:
@@ -43,13 +44,26 @@ class Test_put:
         assert c.get(2) == {'id': 2, 'val': 2}
     
     def test_on_conflict(self, c):
-        pass  # TODO
+        c.put({'id': 1, 'val': 1})
+
+        c.put({'id': 1, 'val': 2}, on_conflict='ignore')
+        assert c.get(1) == {'id': 1, 'val': 1}
+
+        c.put({'id': 1, 'val': 3}, on_conflict='replace')
+        assert c.get(1) == {'id': 1, 'val': 3}
 
 
 class Test_remove:
     
     def test_default(self, c):
-        pass  # TODO
+        n = 1000
+        c.put([{'id': i, 'val': i} for i in range(n)])
+
+        c.remove(0)  # remove single
+        assert len(c) == 999
+        
+        c.remove(list(range(n)))  # remove multiple
+        assert len(c) == 0
 
 
 class Test_option_key:

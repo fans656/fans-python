@@ -27,6 +27,9 @@ class Collection:
         # conflict behavior when putting
         options.setdefault('on_conflict', 'replace')
 
+        # order behavior when get multiple items
+        options.setdefault('order', 'keep')
+
         options.setdefault('auto_key_type', peewee.TextField)
         options.setdefault('auto_key_field', '__key')
         options.setdefault('auto_data_field', '__data')
@@ -45,15 +48,17 @@ class Collection:
 
         self._field_names = [d for d in meta.fields if not d.startswith('_')]
         self._field_names_set = set(self._field_names)
-        self._has_key_field = self._auto_key_field in meta.fields
-        self._has_data_field = self._auto_data_field in meta.fields
+        self._has_auto_key_field = self._auto_key_field in meta.fields
+        self._has_auto_data_field = self._auto_data_field in meta.fields
     
     def get(self, arg, **options):
         if isinstance(arg, list):
             keys = arg
             query = self.model.select().where(self.model._meta.primary_key << keys)
-            # TODO: ensure same order as input keys
-            return [self._row_to_item(row, options) for row in query]
+            rows = query
+            if self._opt('order', options) == 'keep':
+                rows = self._keep_rows_order_with_keys(rows, keys)
+            return [self._row_to_item(row, options) for row in rows]
         elif callable(arg):
             prepare_query = arg
             query = prepare_query(self.model)
@@ -77,11 +82,11 @@ class Collection:
         for _rows in chunked(rows, self._opt('chunk_size', options)):
             on_conflict(self.model.insert_many(_rows)).execute()
     
-    def remove(self, key, **options):
-        if isinstance(key, list):
-            keys = key
+    def remove(self, key_or_keys, **options):
+        if isinstance(key_or_keys, list):
+            keys = key_or_keys
         else:
-            keys = [key]
+            keys = [key_or_keys]
         for _keys in chunked(keys, self._opt('chunk_size', options)):
             self.model.delete().where(self.model._meta.primary_key << _keys).execute()
     
@@ -109,11 +114,11 @@ class Collection:
     
     def _item_to_row(self, item, options):
         row = {}
-        if self._has_key_field:
-            row[self._auto_key_field] = self._get_item_key(item, options)
+        if self._has_auto_key_field:
+            row[self._auto_key_field] = self._get_item_key(item)
         for field_name in self._field_names:
             row[field_name] = item.get(field_name)
-        if self._has_data_field:
+        if self._has_auto_data_field:
             row[self._auto_data_field] = json.dumps({k: v for k, v in item.items() if k not in self._field_names_set})
         return row
     
@@ -126,17 +131,23 @@ class Collection:
             field_name: getattr(row, field_name)
             for field_name in self._field_names
         }
-        if self._has_data_field:
+        if self._has_auto_data_field:
             ret.update(json.loads(getattr(row, self._auto_data_field)))
         return ret
     
-    def _get_item_key(self, item, options):
+    def _get_row_key(self, row):
+        if self._has_auto_key_field:
+            return getattr(row, self._auto_key_field)
+        else:
+            raise NotImplementedError()
+    
+    def _get_item_key(self, item):
         for key_field in self._key_fields:
             key = item.get(key_field)
             if key is not None:
                 return key
         else:
-            raise ValueError(f'item has no usable key: {item}')
+            raise ValueError(f'no usable key: {item}')
     
     def _on_conflict(self, options):
         on_conflict = self._opt('on_conflict', options)
@@ -159,3 +170,7 @@ class Collection:
             database.bind([model])
             database.create_tables([model])
         return model
+
+    def _keep_rows_order_with_keys(self, rows, keys):
+        key_to_index = {key: index for index, key in enumerate(keys)}
+        return sorted(rows, key=lambda row: key_to_index[self._get_row_key(row)])
