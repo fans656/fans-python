@@ -3,11 +3,13 @@ from collections.abc import Iterable
 
 import peewee
 from fans.fn import chunked
+from fans.bunch import bunch
+from fans.dbutil.introspect import models_from_database
 
 
 class Collection:
     
-    def __init__(self, table_name, database, **options):
+    def __init__(self, table_name, database, *, _store_level_cache=None, **options):
         # option 'key' - item field name which will be used as key,
         # e.g. {'id': 1, ...} -> 1 using 'id'.
         # If None then will search for 'id', 'key', 'name' in order.
@@ -37,6 +39,8 @@ class Collection:
         self.table_name = table_name
         self.database = database
         self.options = options
+        
+        self._store_level_cache = _store_level_cache or bunch()
         
         self._key_fields = self._opt('key')
         self._auto_key_field = self._opt('auto_key_field')
@@ -119,7 +123,9 @@ class Collection:
         for field_name in self._field_names:
             row[field_name] = item.get(field_name)
         if self._has_auto_data_field:
-            row[self._auto_data_field] = json.dumps({k: v for k, v in item.items() if k not in self._field_names_set})
+            row[self._auto_data_field] = json.dumps({
+                k: v for k, v in item.items() if k not in self._field_names_set
+            })
         return row
     
     def _row_to_item(self, row, options):
@@ -139,7 +145,10 @@ class Collection:
         if self._has_auto_key_field:
             return getattr(row, self._auto_key_field)
         else:
-            raise NotImplementedError()
+            return tuple(
+                getattr(row, field_name)
+                for field_name in self.model._meta.primary_key.field_names
+            )
     
     def _get_item_key(self, item):
         for key_field in self._key_fields:
@@ -161,7 +170,10 @@ class Collection:
 
     def _derive_model(self, name, database):
         if name in database.get_tables():
-            raise NotImplementedError()
+            cache = self._store_level_cache
+            if cache.models is None:
+                cache.models = models_from_database(database)
+            model = cache.models[name]
         else:
             model = type(name, (peewee.Model,), {
                 self._auto_key_field: self._opt('auto_key_type')(primary_key=True),
