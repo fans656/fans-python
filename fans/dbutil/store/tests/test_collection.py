@@ -1,7 +1,11 @@
 import pytest
 import peewee
 
-from fans.dbutil.store.collection import Collection
+from fans.dbutil.store.collection import (
+    Collection,
+    _set_options_defaults,
+    _normalized_fields,
+)
 
 
 CONFS = [
@@ -73,9 +77,20 @@ def test_usage_auto_migration():
     c = Collection('foo', database)
     c.put({'name': 'foo', 'age': 3})
 
-    # schema updated: age as separate column using index
-    c = Collection('foo', database)
-    c.put({'name': 'bar', 'age': 5})
+    # with schema: age as separate column using index
+    c = Collection('foo', database, **{
+        'fields': {
+            'age': {'type': 'int', 'index': True},
+        },
+    })
+
+    fields = c.model._meta.fields
+    assert 'age' in fields  # column added
+
+    field = fields['age']
+    assert field.index  # is index
+    
+    assert c.model.get_by_id('foo').age == 3  # field value populated
 
 
 class Test_get:
@@ -163,6 +178,28 @@ class Test_misc:
         assert c._opt('on_conflict', {'on_conflict': 'replace'}) == 'replace'
 
 
+def test_normalized_fields():
+    fields = _set_options_defaults({})['fields']
+    assert '__key' in fields
+    assert '__data' in fields
+
+    fields = _set_options_defaults({
+        'fields': {
+            'age': 'int',
+        },
+    })['fields']
+    assert 'age' in fields
+
+    fields = _set_options_defaults({
+        'fields': {
+            'age': {'index': True},
+        },
+    })['fields']
+    field = fields['age']
+    assert field['type'] == 'str'
+    assert field['index']
+
+
 @pytest.fixture
 def c(request):
     if hasattr(request.node, 'callspec'):
@@ -181,7 +218,7 @@ def c(request):
             database.create_tables([table])
             return Collection('foo', database)
 
-    return Collection('foo', peewee.SqliteDatabase(':memory:'), auto_key_type=peewee.IntegerField)
+    return Collection('foo', peewee.SqliteDatabase(':memory:'), auto_key_type=int)
 
 
 @pytest.fixture

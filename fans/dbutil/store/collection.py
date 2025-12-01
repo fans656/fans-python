@@ -4,43 +4,20 @@ from collections.abc import Iterable
 import peewee
 from fans.fn import chunked
 from fans.bunch import bunch
+from fans.dbutil import migrate
 from fans.dbutil.introspect import models_from_database
 
 
 class Collection:
     
-    def __init__(self, table_name, database, *, _store_level_cache=None, **options):
-        # option 'key' - item field name which will be used as key,
-        #     e.g. {'id': 1, ...} -> 1 using 'id'.
-        # If None then will search for 'id', 'key', 'name' in order.
-        # If str then will use the given field name,
-        #     e.g. {'node_id': 123, ...} -> 123 using 'node_id'.
-        # If list[str] then will use the given field names to search in order.
-        options.setdefault('key', ['id', 'key', 'name'])
-        if not isinstance(options['key'], (tuple, list)):
-            options['key'] = [options['key']]
-
-        # whether convert item to dict when returning item from `get` etc
-        options.setdefault('raw', False)
-
-        # chunk size when putting multiple items
-        options.setdefault('chunk_size', 500)
-
-        # conflict behavior when putting
-        options.setdefault('on_conflict', 'replace')
-
-        # order behavior when get multiple items
-        options.setdefault('order', 'keep')
-
-        options.setdefault('auto_key_type', peewee.TextField)
-        options.setdefault('auto_key_field', '__key')
-        options.setdefault('auto_data_field', '__data')
+    def __init__(self, table_name, database, *, _database_level_cache=None, **options):
+        _set_options_defaults(options)
 
         self.table_name = table_name
         self.database = database
         self.options = options
         
-        self._store_level_cache = _store_level_cache or bunch()
+        self._database_level_cache = _database_level_cache or bunch()
         
         self._key_fields = self._opt('key')
         self._auto_key_field = self._opt('auto_key_field')
@@ -168,21 +145,155 @@ class Collection:
             case _:
                 raise ValueError(f'invalid on_conflict behavior "{on_conflict}"')
 
-    def _derive_model(self, name, database):
-        if name in database.get_tables():
-            cache = self._store_level_cache
-            if cache.models is None:
-                cache.models = models_from_database(database)
-            model = cache.models[name]
+    def _derive_model(self, table_name, database):
+        model = _model_from_options(self.options, table_name, database)
+
+        if table_name in database.get_tables():
+            if self._opt('_empty_schema'):
+                models = _cached(lambda: models_from_database(database), self._database_level_cache, 'models')
+                model = models[table_name]
+            else:
+                # minor todo: pass cached models to sync
+                performed_actions = migrate.sync(model, database=database, droptables=False)
+                if performed_actions:
+                    for action in performed_actions:
+                        match action['type']:
+                            case 'add_column':
+                                model.update(**{
+                                    action['column_name']: peewee.fn.json_extract(
+                                        getattr(model, self._auto_data_field),
+                                        '$.age',
+                                    ),
+                                }).execute()
         else:
-            model = type(name, (peewee.Model,), {
-                self._auto_key_field: self._opt('auto_key_type')(primary_key=True),
-                self._auto_data_field: peewee.TextField(),
-            })
             database.bind([model])
             database.create_tables([model])
+
         return model
 
     def _keep_rows_order_with_keys(self, rows, keys):
         key_to_index = {key: index for index, key in enumerate(keys)}
         return sorted(rows, key=lambda row: key_to_index[self._get_row_key(row)])
+
+
+def _model_from_options(options, table_name, database):
+    body = {}
+    
+    for name, spec in options['fields'].items():
+        body[name] = _model_field_from_field_spec(spec)
+
+    # TODO: composite key/index
+
+    return type(table_name, (peewee.Model,), body)
+
+
+def _model_field_from_field_spec(spec):
+    cls = _field_type_to_peewee_field_class(spec['type'])
+    kwargs = {
+        'primary_key': spec.get('primary_key', False),
+        'index': spec.get('index', False),
+        'null': spec.get('null', False),
+    }
+    return cls(**kwargs)
+
+
+def _set_options_defaults(options):
+    # option 'key' - item field name which will be used as key,
+    #     e.g. {'id': 1, ...} -> 1 using 'id'.
+    # If None then will search for 'id', 'key', 'name' in order.
+    # If str then will use the given field name,
+    #     e.g. {'node_id': 123, ...} -> 123 using 'node_id'.
+    # If list[str] then will use the given field names to search in order.
+    options.setdefault('key', ['id', 'key', 'name'])
+    if not isinstance(options['key'], (tuple, list)):
+        options['key'] = [options['key']]
+
+    # whether convert item to dict when returning item from `get` etc
+    options.setdefault('raw', False)
+
+    # chunk size when putting multiple items
+    options.setdefault('chunk_size', 500)
+
+    # conflict behavior when putting
+    options.setdefault('on_conflict', 'replace')
+
+    # order behavior when get multiple items
+    options.setdefault('order', 'keep')
+
+    options.setdefault('auto_key_type', 'str')
+    options.setdefault('auto_key_field', '__key')
+    options.setdefault('auto_data_field', '__data')
+    options.setdefault('primary_key', options['auto_key_field'])
+    
+    options['_empty_schema'] = 'fields' not in options
+
+    options['fields'] = _normalized_fields(options)
+    
+    return options
+
+
+def _normalized_fields(options):
+    fields = options.get('fields', {})
+
+    auto_key_field = options['auto_key_field']
+    if auto_key_field is not None:
+        fields[auto_key_field] = options['auto_key_type']
+    
+    auto_data_field = options['auto_data_field']
+    if auto_data_field is not None:
+        fields[auto_data_field] = 'str'
+    
+    primary_key = options['primary_key']
+    composite_key = isinstance(primary_key, (tuple, list))
+    for name, spec in fields.items():
+        spec = _normalized_field_spec(name, spec)
+        if not composite_key and name == primary_key:
+            spec['primary_key'] = True
+        fields[name] = spec
+
+    return fields
+
+
+def _normalized_field_spec(name, spec):
+    ret = {'name': name}
+
+    if isinstance(spec, (type, str)):
+        spec = {'type': spec}
+    elif not isinstance(spec, dict):
+        raise TypeError(f'invalid field spec: {spec}')
+
+    ret.update(spec)
+
+    if 'type' not in ret:
+        ret['type'] = 'str'
+    
+    if 'null' not in ret:
+        ret['null'] = True
+
+    return ret
+
+
+def _field_type_to_peewee_field_class(field_type):
+    if isinstance(field_type, str):
+        match field_type:
+            case 'str':
+                return peewee.TextField
+            case 'int':
+                return peewee.IntegerField
+            case 'float':
+                return peewee.FloatField
+    else:
+        if field_type is str:
+            return peewee.TextField
+        elif field_type is int:
+            return peewee.IntegerField
+        elif field_type is float:
+            return peewee.FloatField
+
+    raise TypeError(f'unsupported field type {field_type}')
+
+
+def _cached(make_value, cache, attr_name):
+    if getattr(cache, attr_name, None) is None:
+        setattr(cache, attr_name, make_value())
+    return getattr(cache, attr_name)

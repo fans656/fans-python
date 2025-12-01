@@ -4,10 +4,6 @@ from typing import List, Tuple
 
 import peewee
 from playhouse import migrate
-from fans.logger import get_logger
-
-
-logger = get_logger(__name__)
 
 
 class Model:
@@ -64,30 +60,44 @@ class Model:
             yield index[0]
 
 
-def sync_model(model: peewee.Model):
+def sync_model(model: peewee.Model, database, performed_actions=[]):
     if isinstance(model, tuple):
         model, renames = model
     else:
-        renames = []
+        model, renames = model, []
+    
+    if not model._meta.database:
+        database.bind([model])
 
     model = Model(model, renames)
-    database = model.database
     migrator = migrate.SqliteMigrator(database)
 
     with database.atomic():
         # create table
         if not model.table_rename and not database.table_exists(model.table_name):
             database.create_tables([model.model])
+            performed_actions.append({
+                'type': 'create_table',
+                'table_name': model.table_name,
+            })
 
         # rename table
         if model.table_rename:
-            logger.info('rename table')
             migrate.migrate(migrator.rename_table(*map(peewee.make_snake_case, model.table_rename)))
+            performed_actions.append({
+                'type': 'rename_table',
+                'old_table_name': model.table_rename[0],
+                'new_table_name': model.table_rename[1],
+            })
 
         # rename columns
         for src_name, dst_name in model.column_renames:
-            logger.info(f'rename column {src_name} -> {dst_name}')
             migrate.migrate(migrator.rename_column(model.table_name, src_name, dst_name))
+            performed_actions.append({
+                'type': 'rename_column',
+                'src_column_name': src_name,
+                'dst_column_name': dst_name,
+            })
 
         # change primary key
         src_primary_keys = database.get_primary_keys(model.table_name)
@@ -112,6 +122,11 @@ def sync_model(model: peewee.Model):
 
                 database.execute_sql(f'drop table {tmp_name}')
 
+            performed_actions.append({
+                'type': 'change_primary_key',
+                'table_name': model.table_name,
+            })
+
         src_col_names = set(model.src_col_names)
         dst_col_names = set(model.dst_col_names)
 
@@ -120,14 +135,22 @@ def sync_model(model: peewee.Model):
         name_to_dst_col = {col.name: col for col in model.dst_cols}
         for name in add_names:
             col = name_to_dst_col[name]
-            logger.info(f'add column {name}')
             migrate.migrate(migrator.add_column(model.table_name, name, col))
+            performed_actions.append({
+                'type': 'add_column',
+                'table_name': model.table_name,
+                'column_name': name,
+            })
 
         # del columns
         del_names = src_col_names - dst_col_names
         for name in del_names:
-            logger.info(f'del column {name}')
             migrate.migrate(migrator.drop_column(model.table_name, name))
+            performed_actions.append({
+                'type': 'delete_column',
+                'table_name': model.table_name,
+                'column_name': name,
+            })
 
         src_indexes = set(model.src_indexes)
         dst_indexes = set(model.dst_indexes)
@@ -135,8 +158,12 @@ def sync_model(model: peewee.Model):
         # add indexes
         add_indexes = dst_indexes - src_indexes
         for index in add_indexes:
-            logger.info(f'add index {index}')
             migrate.migrate(migrator.add_index(model.table_name, index))
+            performed_actions.append({
+                'type': 'add_index',
+                'table_name': model.table_name,
+                'index_name': index,
+            })
 
         # del indexes
         del_indexes = src_indexes - dst_indexes
@@ -147,13 +174,17 @@ def sync_model(model: peewee.Model):
             index = cols_to_index[cols]
             if index.unique:
                 continue
-            logger.info(f'del index {index.name}')
             migrate.migrate(migrator.drop_index(model.table_name, index.name))
+            performed_actions.append({
+                'type': 'delete_index',
+                'table_name': model.table_name,
+                'index_name': index.name,
+            })
 
     return model
 
 
-def sync(*models, droptables = True):
+def sync(*models, database=None, droptables=True) -> list[dict]:
     """
     Each model is one of following types:
         peewee.Model
@@ -167,18 +198,42 @@ def sync(*models, droptables = True):
             sync((Bar, [('Foo', 'Bar')]))
         Rename column one to two:
             sync((Foo, [('one', 'two')]))
+    
+    Returns:
+        A list of performed actions.
     """
-    database = None
-    names = []
+    performed_actions = []
+
+    if not models:
+        return performed_actions
+
+    if database is None:
+        for model in models:
+            if isinstance(model, (tuple, list)):
+                model = model[0]
+            if model._meta.database:
+                database = model._meta.database
+                break
+    
+    if database is None:
+        raise ValueError('no database given')
+
+    table_names = set()
+
     for model in models:
-        model = sync_model(model)
-        names.append(model.table_name)
-        if model.database:
-            database = model.database
+        model = sync_model(model, database, performed_actions=performed_actions)
+        table_names.add(model.table_name)
 
     # drop extra tables
-    if droptables and database:
-        extra_names = set(database.get_tables()) - set(names)
-        with database.atomic():
-            for name in extra_names:
-                database.execute_sql(f'drop table {name}')
+    if droptables:
+        extra_names = set(database.get_tables()) - table_names
+        if extra_names:
+            with database.atomic():
+                for name in extra_names:
+                    database.execute_sql(f'drop table {name}')
+                    performed_actions.append({
+                        'type': 'drop_table',
+                        'name': name,
+                    })
+
+    return performed_actions

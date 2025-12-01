@@ -174,6 +174,27 @@ def test_del_indexes():
     assert ('code', 'name') not in indexes
 
 
+class Test_misc:
+    
+    def test_noop_when_no_models(self):
+        sync()
+    
+    def test_use_database_in_model(self):
+
+        class Foo(peewee.Model):
+            
+            pass
+
+        class Bar(peewee.Model):
+            
+            pass
+        
+        database = peewee.SqliteDatabase(':memory:')
+        database.bind([Bar])
+        
+        sync(Foo, Bar)
+
+
 @pytest.fixture
 def make_models():
     database = peewee.SqliteDatabase(':memory:')
