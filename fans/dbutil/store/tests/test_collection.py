@@ -170,12 +170,12 @@ class Test_option_key:
         assert c.get('3') == {'name': '3', 'val': 3}
 
     def test_custom_key(self):
-        c = Collection('foo', peewee.SqliteDatabase(':memory:'), key='uid')
+        c = Collection('foo', key='uid')
         c.put({'uid': '1', 'val': 1})
         assert c.get('1') == {'uid': '1', 'val': 1}
 
     def test_custom_keys(self):
-        c = Collection('foo', peewee.SqliteDatabase(':memory:'), key=['uid', 'uuid'])
+        c = Collection('foo', key=['uid', 'uuid'])
 
         c.put({'uid': '1', 'val': 1})
         assert c.get('1') == {'uid': '1', 'val': 1}
@@ -184,12 +184,63 @@ class Test_option_key:
         assert c.get('2') == {'uuid': '2', 'val': 2}
 
 
+class Test_option_primary_key:
+    
+    def test_composite_primary_key(self):
+        c = Collection('foo', **{
+            'fields': {
+                'node_id': {'type': 'int'},
+                'time_pos': {'type': 'float'},
+            },
+            'primary_key': ['node_id', 'time_pos'],
+        })
+
+        item1 = {'node_id': 123, 'time_pos': 0.5, 'tagging': 'foo bar'}
+        item2 = {'node_id': 456, 'time_pos': 3.1, 'meta': '{}'}
+
+        c.put(item1)
+        c.put(item2)
+        
+        assert c.list() == [item1, item2]
+        assert c.get((123, 0.5)) == item1
+        assert c.get((456, 3.1)) == item2
+
+
+class Test_option_indexes:
+    
+    def test_composite_indexes(self):
+        c = Collection('foo', **{
+            'fields': {
+                'name': 'str',
+                'city': 'str',
+                'region': 'str',
+                'age': 'int',
+            },
+            'indexes': [
+                'age',  # simple index
+                ('city', 'region'),  # non unique composite index
+                (('name',), True),  # unique index using peewee Meta.indexes syntax
+            ],
+        })
+
+        indexes = c.model._meta.indexes
+        assert indexes[0] == (('age',), False)
+        assert indexes[1] == (('city', 'region'), False)
+        assert indexes[2] == (('name',), True)
+
+
 class Test_misc:
 
     def test_option_override(self):
-        c = Collection('foo', peewee.SqliteDatabase(':memory:'), on_conflict='ignore')
+        c = Collection('foo', on_conflict='ignore')
         assert c._opt('on_conflict') == 'ignore'
         assert c._opt('on_conflict', {'on_conflict': 'replace'}) == 'replace'
+    
+    def test_pure_options_constructor(self):
+        c = Collection(**{
+            'database': ':memory:',
+            'table': 'foo',
+        })
 
 
 def test_normalized_fields():
@@ -232,7 +283,7 @@ def c(request):
             database.create_tables([table])
             return Collection('foo', database)
 
-    return Collection('foo', peewee.SqliteDatabase(':memory:'), auto_key_type=int)
+    return Collection('foo', auto_key_type=int)
 
 
 @pytest.fixture

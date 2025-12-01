@@ -10,11 +10,16 @@ from fans.dbutil.introspect import models_from_database
 
 class Collection:
     
-    def __init__(self, table_name, database, *, _database_level_cache=None, **options):
-        _set_options_defaults(options)
+    def __init__(self, _table_name=None, _database=None, *, _database_level_cache=None, **options):
+        _set_options_defaults(options, table_name=_table_name, database=_database)
+        
+        database = _database or options['database']
+        if isinstance(database, peewee.Database):
+            self.database = database
+        else:
+            self.database = peewee.SqliteDatabase(database)
 
-        self.table_name = table_name
-        self.database = database
+        self.table_name = _table_name or options['table']
         self.options = options
         
         self._database_level_cache = _database_level_cache or bunch()
@@ -23,7 +28,7 @@ class Collection:
         self._auto_key_field = self._opt('auto_key_field')
         self._auto_data_field = self._opt('auto_data_field')
         
-        self.model = self._derive_model(table_name, database)
+        self.model = self._derive_model(self.table_name, self.database)
         
         meta = self.model._meta
 
@@ -83,18 +88,15 @@ class Collection:
         for _keys in chunked(keys, self._opt('chunk_size', options)):
             self.model.delete().where(self.model._meta.primary_key << _keys).execute()
     
-    def list(self, **options):
-        return list(self.iter(**options))
+    def count(self):
+        return self.model.select().count()
     
     def iter(self, **options):
         for row in self.model.select():
             yield self._row_to_item(row, options)
     
-    def count(self):
-        return self.model.select().count()
-    
-    def find_by_tag(self, query: str):
-        pass
+    def list(self, **options):
+        return list(self.iter(**options))
     
     def __len__(self):
         return self.count()
@@ -204,8 +206,26 @@ def _model_from_options(options, table_name, database):
     
     for name, spec in options['fields'].items():
         body[name] = _model_field_from_field_spec(spec)
+    
+    meta_body = {}
+    
+    primary_key = options['primary_key']
+    if isinstance(primary_key, (tuple, list)):
+        meta_body['primary_key'] = peewee.CompositeKey(*primary_key)
 
-    # TODO: schema for composite key/index
+    indexes = options['indexes']
+    if indexes:
+        meta_body['indexes'] = []
+        for index in indexes:
+            if isinstance(index, str):
+                index = ((index,), False)
+            elif isinstance(index, (tuple, list)):
+                if isinstance(index[0], str):
+                    index = (index, False)
+            meta_body['indexes'].append(index)
+    
+    if meta_body:
+        body['Meta'] = type('Meta', (), meta_body)
 
     return type(table_name, (peewee.Model,), body)
 
@@ -220,7 +240,12 @@ def _model_field_from_field_spec(spec):
     return cls(**kwargs)
 
 
-def _set_options_defaults(options):
+def _set_options_defaults(options, *, table_name=None, database=None):
+    if table_name:
+        options.setdefault('table', table_name)
+    if database:
+        options.setdefault('database', database)
+
     # option 'key' - item field name which will be used as key,
     #     e.g. {'id': 1, ...} -> 1 using 'id'.
     # If None then will search for 'id', 'key', 'name' in order.
@@ -247,9 +272,11 @@ def _set_options_defaults(options):
     options.setdefault('auto_key_field', '__key')
     options.setdefault('auto_data_field', '__data')
     options.setdefault('primary_key', options['auto_key_field'])
+    options.setdefault('database', ':memory:')
     
     options['_empty_schema'] = 'fields' not in options
 
+    options.setdefault('indexes', [])
     options['fields'] = _normalized_fields(options)
     
     return options
@@ -259,7 +286,7 @@ def _normalized_fields(options):
     fields = options.get('fields', {})
 
     auto_key_field = options['auto_key_field']
-    if auto_key_field is not None:
+    if auto_key_field is not None and auto_key_field == options['primary_key']:
         fields[auto_key_field] = options['auto_key_type']
     
     auto_data_field = options['auto_data_field']
