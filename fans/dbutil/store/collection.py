@@ -63,6 +63,18 @@ class Collection:
         for _rows in chunked(rows, self._opt('chunk_size', options)):
             on_conflict(self.model.insert_many(_rows)).execute()
     
+    def update(self, key, update: dict, **options):
+        field_update = {}
+        data_update = {}
+        for k, v in update.items():
+            if k in self._field_names:
+                field_update[k] = v
+            else:
+                data_update[k] = v
+        if self._auto_data_field and data_update:
+            field_update[self._auto_data_field] = json.dumps({**self._get_data(key), **data_update})
+        self.model.update(field_update).where(self.model._meta.primary_key == key).execute()
+    
     def remove(self, key_or_keys, **options):
         if isinstance(key_or_keys, list):
             keys = key_or_keys
@@ -105,7 +117,7 @@ class Collection:
             })
         return row
     
-    def _row_to_item(self, row, options):
+    def _row_to_item(self, row, options={}):
         if row is None:
             return row
         if self._opt('raw', options):
@@ -174,6 +186,17 @@ class Collection:
     def _keep_rows_order_with_keys(self, rows, keys):
         key_to_index = {key: index for index, key in enumerate(keys)}
         return sorted(rows, key=lambda row: key_to_index[self._get_row_key(row)])
+    
+    def _get_data(self, key):
+        query = self.model.select(
+            getattr(self.model, self._auto_data_field),
+        ).where(
+            self.model._meta.primary_key == key
+        )
+        row = next(iter(query), None)
+        if not row:
+            return {}
+        return self._row_to_item(row)
 
 
 def _model_from_options(options, table_name, database):
@@ -182,7 +205,7 @@ def _model_from_options(options, table_name, database):
     for name, spec in options['fields'].items():
         body[name] = _model_field_from_field_spec(spec)
 
-    # TODO: composite key/index
+    # TODO: schema for composite key/index
 
     return type(table_name, (peewee.Model,), body)
 

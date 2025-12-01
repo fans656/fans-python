@@ -91,6 +91,11 @@ def test_usage_auto_migration():
     assert field.index  # is index
     
     assert c.model.get_by_id('foo').age == 3  # field value populated
+    
+    # put/get after table change
+    c.put({'name': 'bar', 'age': 5})
+    assert c.model.get_by_id('bar').age == 5
+    assert c.get('bar') == {'name': 'bar', 'age': 5}
 
 
 class Test_get:
@@ -127,6 +132,15 @@ class Test_put:
 
         c.put(item(1, val=3), on_conflict='replace')
         assert c.get(key(1)) == item(1, val=3)
+
+
+class Test_update:
+    
+    @pytest.mark.parametrize('conf', CONFS)
+    def test_update(self, c, key, item, conf):
+        c.put(item(1))
+        c.update(key(1), {'val': 2})
+        assert c.get(key(1)) == item(1, **{'val': 2})
 
 
 class Test_remove:
