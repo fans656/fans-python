@@ -23,3 +23,19 @@ def test_get_collection():
     
     # later get is cached
     assert store.get_collection('foo') is collection
+
+
+def test_store_level_options():
+    store = Store(':memory:', on_conflict='ignore')
+
+    # inherit store level options
+    c1 = store.get_collection('c1')
+    c1.put({'id': '1', 'val': 'one'})
+    c1.put({'id': '1', 'val': 'two'})
+    assert c1.get('1') == {'id': '1', 'val': 'one'}
+
+    # can specify overrides when get_collection
+    c2 = store.get_collection('c2', on_conflict='replace')
+    c2.put({'id': '1', 'val': 'one'})
+    c2.put({'id': '1', 'val': 'two'})
+    assert c2.get('1') == {'id': '1', 'val': 'two'}

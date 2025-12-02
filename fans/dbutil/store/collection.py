@@ -1,4 +1,115 @@
+"""
+Manage a database table as a collection of items:
+
+    c = Collection('person', peewee.SqliteDatabase(':memory:'))
+
+    # put items into collection
+    c.put({'name': 'foo', 'age': 3})  # by default use 'id'/'key'/'name' as item key
+    c.put({'name': 'bar', 'age': 5})
+
+    # get item
+    assert c.get('foo') == {'name': 'foo', 'age': 3}
+
+    # update existing item
+    c.update('foo', {'age': 7})
+    
+    # count items
+    assert c.count() == 2
+
+    # remove item
+    c.remove('bar')
+
+by default item data is JSON serialized into `__data` column:
+
+    __key   __data
+    foo     {"name":"foo","age":7}
+    bar     {"name":"bar","age":5}
+
+you can specify fields to be in separate column:
+
+    c = Collection('person', database, **{
+        'fields': {
+            'age': {'type': 'int', 'index': True},
+        },
+    })
+
+    # __key   age     __data
+    # foo     7       {"name":"foo"}
+    # bar     5       {"name":"bar"}
+
+or specify primary key:
+
+    c = Collection('clip', database, **{
+        'fields': {
+            'node_id': 'int',
+            'time_pos': 'float',
+        },
+        'primary_key': ['node_id', 'time_pos'],
+    })
+    
+    c.put({'node_id': 123, 'time_pos': 60.0, 'tagging': 'thumb'})
+    c.put({'node_id': 456, 'time_pos': 10.0, 'rating': 5})
+
+    # node_id     time_pos    __data
+    # 123         60.0        {'tagging': 'thumb'}
+    # 456         10.0        {'rating': 5}
+
+    c.get(123) == {'node_id': 123, 'time_pos': 60.0, 'tagging': 'thumb'}
+
+or just use existing database table:
+    
+    # "person" table
+    #
+    # forename    surename    where
+    # Alex        Honnold     mountain
+    # Moby        Dick        ocean
+    
+    c = Collection('person', database)
+
+    c.get(('Alex', 'Honnold')) == {'forename': 'Alex', 'surename': 'Honnold', 'where': 'mountain'}
+
+# Note 
+
+`Collection` is constructed by given a table name and database:
+
+    c = Collection('person', peewee.SqliteDatabase(':memory:'))
+
+    c = Collection(**{'table': 'person', 'database': ':memory:'})  # pure options form
+
+see `_set_options_defaults` for all options.
+
+Following are common methods of `Collection`:
+    
+    c.get(...)      # get item(s)
+    c.put(...)      # put item(s)
+    c.update(...)   # update item
+    c.remove(...)   # remove item(s)
+    c.count()       # count existing items
+    c.iter()        # iterate existing items
+    c.list()        # get existing items as list
+
+see doc of each method for details.
+
+You can always access `c.model: peewee.Model` for advanced query.
+
+# Auto migration
+
+When you change collection schema, by default the underlying table will be auto migrated:
+    
+    c = Collection('person', database)
+    c.put({'name': 'foo', 'age': 3})
+
+    # __key   __data
+    # foo     {"name":"foo","age":3}
+    
+    # later changed to
+    c = Collection('person', database, fields={'age': {'type': 'int', 'index': True}})
+
+    # __key   __data            age     
+    # foo     {"name":"foo"}    3       
+"""
 import json
+import functools
 from collections.abc import Iterable
 
 import peewee
@@ -10,16 +121,23 @@ from fans.dbutil.introspect import models_from_database
 
 class Collection:
     
-    def __init__(self, _table_name=None, _database=None, *, _database_level_cache=None, **options):
-        _set_options_defaults(options, table_name=_table_name, database=_database)
+    def __init__(
+        self,
+        table_: str = None,
+        database_: str|peewee.Database = None,
+        *,
+        _database_level_cache=None,
+        **options,
+    ):
+        _set_options_defaults(options, table_name=table_, database=database_)
         
-        database = _database or options['database']
+        database = database_ or options['database']
         if isinstance(database, peewee.Database):
             self.database = database
         else:
             self.database = peewee.SqliteDatabase(database)
 
-        self.table_name = _table_name or options['table']
+        self.table_name = table_ or options['table']
         self.options = options
         
         self._database_level_cache = _database_level_cache or bunch()
@@ -38,9 +156,46 @@ class Collection:
         self._has_auto_data_field = self._auto_data_field in meta.fields
     
     def get(self, arg, **options):
+        """
+        Get item or items.
+        
+        Args:
+            arg -
+                if key (str|int|float|tuple), consider as single key for getting single item.
+                if list, consider as multiple keys for getting multiple items.
+                if callable, consider as query builder for taking c.model and return a query.
+            options -
+                order - for list getting, if 'keep' (default) then ensure returned items kept same order
+                        as given keys
+                raw - if True (default False) then don't convert item into dict
+        
+        For example, given collection:
+
+            c = Collection('person')
+            c.put({'name': 'foo', 'age': 3})
+            c.put({'name': 'bar', 'age': 5})
+
+        Get single item by key:
+        
+            c.get('foo') == {'name': 'foo', 'age': 3}
+        
+        Get multiple items by keys:
+        
+            c.get(['foo', 'bar']) == [
+                {'name': 'foo', 'age': 3},
+                {'name': 'bar', 'age': 5},
+            ]
+        
+        Get by query builder callable:
+        
+            c = Collection('person', indexes=['age'])
+            next(c.get(lambda m: m.select().where(m.age > 4))) == {'name': 'bar', 'age': 5}
+        """
         if isinstance(arg, list):
             keys = arg
             query = self.model.select().where(self.model._meta.primary_key << keys)
+            if self._opt('raw', options):
+                return query
             rows = query
             if self._opt('order', options) == 'keep':
                 rows = self._keep_rows_order_with_keys(rows, keys)
@@ -48,13 +203,28 @@ class Collection:
         elif callable(arg):
             prepare_query = arg
             query = prepare_query(self.model)
-            return query if self._opt('raw', options) else map(self._row_to_item, query)
+            if self._opt('raw', options):
+                return query
+            return [self._row_to_item(row, options) for row in query]
         else:
             key = arg
             row = self.model.get_or_none(self.model._meta.primary_key == key)
             return self._row_to_item(row, options)
     
     def put(self, item_or_items, **options):
+        """
+        Put item or items into collection.
+        
+        Args:
+            item_or_items -
+                if dict, consider as item.
+                if iterable, consdier as items.
+            options -
+                chunk_size - when putting huge number of items,
+                    split into chunks for each database operation, default 500.
+                on_conflict - 'replace' (default) | 'ignore'
+                    conflict behavior when item key already exists.
+        """
         if isinstance(item_or_items, dict):
             items = [item_or_items]
         elif isinstance(item_or_items, Iterable):
@@ -97,6 +267,10 @@ class Collection:
     
     def list(self, **options):
         return list(self.iter(**options))
+    
+    @functools.cached_property
+    def migration(self):
+        return migrate.Migration()
     
     def __len__(self):
         return self.count()
@@ -240,48 +414,6 @@ def _model_field_from_field_spec(spec):
     return cls(**kwargs)
 
 
-def _set_options_defaults(options, *, table_name=None, database=None):
-    if table_name:
-        options.setdefault('table', table_name)
-    if database:
-        options.setdefault('database', database)
-
-    # option 'key' - item field name which will be used as key,
-    #     e.g. {'id': 1, ...} -> 1 using 'id'.
-    # If None then will search for 'id', 'key', 'name' in order.
-    # If str then will use the given field name,
-    #     e.g. {'node_id': 123, ...} -> 123 using 'node_id'.
-    # If list[str] then will use the given field names to search in order.
-    options.setdefault('key', ['id', 'key', 'name'])
-    if not isinstance(options['key'], (tuple, list)):
-        options['key'] = [options['key']]
-
-    # whether convert item to dict when returning item from `get` etc
-    options.setdefault('raw', False)
-
-    # chunk size when putting multiple items
-    options.setdefault('chunk_size', 500)
-
-    # conflict behavior when putting
-    options.setdefault('on_conflict', 'replace')
-
-    # order behavior when get multiple items
-    options.setdefault('order', 'keep')
-
-    options.setdefault('auto_key_type', 'str')
-    options.setdefault('auto_key_field', '__key')
-    options.setdefault('auto_data_field', '__data')
-    options.setdefault('primary_key', options['auto_key_field'])
-    options.setdefault('database', ':memory:')
-    
-    options['_empty_schema'] = 'fields' not in options
-
-    options.setdefault('indexes', [])
-    options['fields'] = _normalized_fields(options)
-    
-    return options
-
-
 def _normalized_fields(options):
     fields = options.get('fields', {})
 
@@ -347,3 +479,45 @@ def _cached(make_value, cache, attr_name):
     if getattr(cache, attr_name, None) is None:
         setattr(cache, attr_name, make_value())
     return getattr(cache, attr_name)
+
+
+def _set_options_defaults(options, *, table_name=None, database=None):
+    if table_name:
+        options.setdefault('table', table_name)
+    if database:
+        options.setdefault('database', database)
+
+    # option 'key' - item field name which will be used as key,
+    #     e.g. {'id': 1, ...} -> 1 using 'id'.
+    # If None then will search for 'id', 'key', 'name' in order.
+    # If str then will use the given field name,
+    #     e.g. {'node_id': 123, ...} -> 123 using 'node_id'.
+    # If list[str] then will use the given field names to search in order.
+    options.setdefault('key', ['id', 'key', 'name'])
+    if not isinstance(options['key'], (tuple, list)):
+        options['key'] = [options['key']]
+
+    # whether convert item to dict when returning item from `get` etc
+    options.setdefault('raw', False)
+
+    # chunk size when putting multiple items
+    options.setdefault('chunk_size', 500)
+
+    # conflict behavior when putting
+    options.setdefault('on_conflict', 'replace')
+
+    # order behavior when get multiple items
+    options.setdefault('order', 'keep')
+
+    options.setdefault('auto_key_type', 'str')
+    options.setdefault('auto_key_field', '__key')
+    options.setdefault('auto_data_field', '__data')
+    options.setdefault('primary_key', options['auto_key_field'])
+    options.setdefault('database', ':memory:')
+    
+    options['_empty_schema'] = 'fields' not in options
+
+    options.setdefault('indexes', [])
+    options['fields'] = _normalized_fields(options)
+    
+    return options

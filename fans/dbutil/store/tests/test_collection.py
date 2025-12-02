@@ -6,6 +6,7 @@ from fans.dbutil.store.collection import (
     _set_options_defaults,
     _normalized_fields,
 )
+from fans.dbutil import migrate
 
 
 CONFS = [
@@ -14,61 +15,101 @@ CONFS = [
 ]
 
 
-def test_usage_basic():
-    c = Collection('foo', peewee.SqliteDatabase(':memory:'))
+class Test_readme:
 
-    # put
-    c.put({'name': 'foo', 'age': 3})
-    c.put({'name': 'bar', 'age': 5})
-    
-    # get
-    assert c.get('foo') == {'name': 'foo', 'age': 3}
-    assert c.get('bar') == {'name': 'bar', 'age': 5}
+    def test_usage_basic(self):
+        c = Collection('foo', peewee.SqliteDatabase(':memory:'))
 
-    # count
-    assert c.count() == 2
-
-    # remove
-    c.remove('foo')
-    assert c.count() == 1
-
-
-def test_usage_from_existing_database():
-    database = peewee.SqliteDatabase(':memory:')
-    
-    #-------------------- prepare database
-
-    class Person(peewee.Model):
+        # put items into collection
+        c.put({'name': 'foo', 'age': 3})
+        c.put({'name': 'bar', 'age': 5})
         
-        class Meta:
+        # get item (by key)
+        assert c.get('foo') == {'name': 'foo', 'age': 3}
+        assert c.get('bar') == {'name': 'bar', 'age': 5}
+        
+        # update existing item
+        c.update('foo', {'age': 7})
+        assert c.get('foo') == {'name': 'foo', 'age': 7}
+
+        # count items
+        assert c.count() == 2
+
+        # remove item (by key)
+        c.remove('foo')
+        assert c.count() == 1
+    
+    def test_specify_fields_as_separate_column(self):
+        c = Collection('foo', **{
+            'fields': {
+                'age': {'type': 'int', 'index': True},
+            },
+        })
+
+        fields = c.model._meta.fields
+        assert len(fields) == 3
+        assert c._auto_key_field in fields
+        assert c._auto_data_field in fields
+        assert 'age' in fields  # column added
+
+        field = fields['age']
+        assert field.index  # is index
+    
+    def test_specify_primary_key(self):
+        c = Collection('foo', **{
+            'fields': {
+                'node_id': {'type': 'int'},
+                'time_pos': {'type': 'float'},
+            },
+            'primary_key': ['node_id', 'time_pos'],
+        })
+
+        item1 = {'node_id': 123, 'time_pos': 60.0, 'tagging': 'foo bar'}
+        item2 = {'node_id': 456, 'time_pos': 10.0, 'meta': '{}'}
+
+        c.put(item1)
+        c.put(item2)
+        
+        assert c.list() == [item1, item2]
+        assert c.get((123, 60.0)) == item1
+        assert c.get((456, 10.0)) == item2
+
+    def test_use_existing_database_table(self):
+        database = peewee.SqliteDatabase(':memory:')
+        
+        #-------------------- prepare database
+
+        class Person(peewee.Model):
             
-            primary_key = peewee.CompositeKey('forename', 'surname')
+            class Meta:
+                
+                primary_key = peewee.CompositeKey('forename', 'surname')
+            
+            forename = peewee.TextField()
+            surname = peewee.TextField()
         
-        forename = peewee.TextField()
-        surname = peewee.TextField()
-    
-    database.bind([Person])
-    database.create_tables([Person])
+        database.bind([Person])
+        database.create_tables([Person])
 
-    Person.insert_many([
-        {'forename': 'Alex', 'surname': 'Honnold'},
-        {'forename': 'Moby', 'surname': 'Dick'},
-    ]).execute()
+        Person.insert_many([
+            {'forename': 'Alex', 'surname': 'Honnold'},
+            {'forename': 'Moby', 'surname': 'Dick'},
+        ]).execute()
 
-    #-------------------- collection from existing database
+        #-------------------- collection from existing database
 
-    c = Collection('person', database)
+        c = Collection('person', database)
 
-    # use tuple for composite key
-    assert c.get(('Alex', 'Honnold')) == {'forename': 'Alex', 'surname': 'Honnold'}
+        # use tuple for composite key
+        assert c.get(('Alex', 'Honnold')) == {'forename': 'Alex', 'surname': 'Honnold'}
 
-    assert c.get([
-        ('Moby', 'Dick'),
-        ('Alex', 'Honnold'),
-    ]) == [
-        {'forename': 'Moby', 'surname': 'Dick'},
-        {'forename': 'Alex', 'surname': 'Honnold'},
-    ]
+        assert c.get([
+            ('Moby', 'Dick'),
+            ('Alex', 'Honnold'),
+        ]) == [
+            {'forename': 'Moby', 'surname': 'Dick'},
+            {'forename': 'Alex', 'surname': 'Honnold'},
+        ]
 
 
 def test_usage_auto_migration():
@@ -103,11 +144,33 @@ class Test_get:
     @pytest.mark.parametrize('conf', CONFS)
     def test_default(self, c, key, keys, item, conf):
         c.put(item(1))
-        assert c.get(key(1)) == item(1)  # get single
+        assert c.get(key(1)) == item(1)  # get single item by key
 
         c.put(item(2))
-        assert c.get(keys([1, 2])) == [item(1), item(2)]  # get multiple
+        assert c.get(keys([1, 2])) == [item(1), item(2)]  # get multiple items by keys
         assert c.get(keys([2, 1])) == [item(2), item(1)]  # same order as given keys
+    
+    def test_callable(self):
+        c = Collection('person', fields={'age': {'type': 'int', 'index': True}})
+        c.put({'name': 'foo', 'age': 3})
+        c.put({'name': 'bar', 'age': 5})
+        
+        assert c.get(lambda m: m.select().where(m.age > 4))[0] == {'name': 'bar', 'age': 5}
+    
+    def test_raw(self):
+        c = Collection('person', fields={'age': 'int'})
+        c.put({'name': 'foo', 'age': 3})
+        c.put({'name': 'bar', 'age': 5})
+
+        assert isinstance(c.get('foo', raw=True), c.model)
+        
+        query = c.get(['foo', 'bar'], raw=True)
+        assert isinstance(query, peewee.ModelSelect)
+        assert all(isinstance(row, c.model) for row in query)
+
+        query = c.get(lambda m: m.select().where(m.age > 4), raw=True)
+        assert isinstance(query, peewee.ModelSelect)
+        assert all(isinstance(row, c.model) for row in query)
 
 
 class Test_put:
@@ -157,6 +220,13 @@ class Test_remove:
         assert len(c) == 0
 
 
+class Test_migration:
+    
+    def test_migration_attr(self):
+        c = Collection('person')
+        assert isinstance(c.migration, migrate.Migration)
+
+
 class Test_option_key:
     
     def test_default_id_key_name(self, c):
@@ -186,24 +256,7 @@ class Test_option_key:
 
 class Test_option_primary_key:
     
-    def test_composite_primary_key(self):
-        c = Collection('foo', **{
-            'fields': {
-                'node_id': {'type': 'int'},
-                'time_pos': {'type': 'float'},
-            },
-            'primary_key': ['node_id', 'time_pos'],
-        })
-
-        item1 = {'node_id': 123, 'time_pos': 0.5, 'tagging': 'foo bar'}
-        item2 = {'node_id': 456, 'time_pos': 3.1, 'meta': '{}'}
-
-        c.put(item1)
-        c.put(item2)
-        
-        assert c.list() == [item1, item2]
-        assert c.get((123, 0.5)) == item1
-        assert c.get((456, 3.1)) == item2
+    pass
 
 
 class Test_option_indexes:
