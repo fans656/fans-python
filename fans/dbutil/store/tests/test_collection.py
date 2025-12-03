@@ -170,6 +170,25 @@ class Test_auto_migration:
         assert 'age' not in fields  # column removed
         assert c.get('foo') == {'name': 'foo', 'age': 3, 'gender': None}  # value re-add into data field
 
+    def test_change_field_type(self):
+        database = peewee.SqliteDatabase(':memory:')
+
+        c = Collection('foo', database, **{
+            'fields': {
+                'age': {'type': 'int'},
+            },
+        })
+        c.put({'name': 'foo', 'age': 3})
+        c.put({'name': 'bar', 'age': 13})
+        assert [d.age for d in c.model.select().order_by(c.model.age)] == [3, 13]
+
+        c = Collection('foo', database, **{
+            'fields': {
+                'age': {'type': 'str'},
+            },
+        })
+        assert [d.age for d in c.model.select().order_by(c.model.age)] == ['13', '3']
+
 
 class Test_get:
     

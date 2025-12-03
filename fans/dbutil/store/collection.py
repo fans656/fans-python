@@ -272,10 +272,6 @@ class Collection:
     def list(self, **options):
         return list(self.iter(**options))
     
-    @functools.cached_property
-    def migration(self):
-        return migrate.Migration(self.database)
-    
     def __len__(self):
         return self.count()
     
@@ -375,7 +371,7 @@ class Collection:
                             }).execute()
 
                 # minor todo: pass cached models to sync
-                migrate.sync(
+                actions = migrate.sync(
                     model,
                     database=database,
                     droptables=False,

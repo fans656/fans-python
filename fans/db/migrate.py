@@ -7,6 +7,7 @@ import peewee
 from playhouse import migrate
 from fans.fn import noop
 from fans.bunch import bunch
+from fans.dbutil.introspect import models_from_database
 
 
 __all__ = [
@@ -65,8 +66,14 @@ def sync(
         after_action=after_action,
     )
 
+    existed_models = models_from_database(database)
     for model in models:
-        model = _sync_model(model, database, execute_action=execute_action)
+        model = _sync_model(
+            model,
+            database,
+            execute_action=execute_action,
+            existed_models=existed_models,
+        )
         table_names.add(model.table_name)
 
     # drop extra tables
@@ -137,7 +144,7 @@ class Model:
             yield index[0]
 
 
-def _sync_model(model: peewee.Model, database, *, execute_action):
+def _sync_model(model: peewee.Model, database, *, execute_action, existed_models):
     if isinstance(model, tuple):
         model, renames = model
     else:
@@ -233,6 +240,23 @@ def _sync_model(model: peewee.Model, database, *, execute_action):
                 'table_name': model.table_name,
                 'column_name': name,
             })
+        
+        # change column types
+        old_model = existed_models.get(model.table_name)
+        if old_model:
+            for field_name, field in model.meta.fields.items():
+                old_field = old_model._meta.fields.get(field_name)
+                need_change = False
+                if old_field.field_type != field.field_type:
+                    need_change = True
+                if need_change:
+                    execute_action({
+                        'type': 'change_column',
+                        'table_name': model.table_name,
+                        'column_name': field_name,
+                        'old_field': old_field,
+                        'new_field': field,
+                    })
 
     return model
 
@@ -291,6 +315,23 @@ def _execute_action(
                         database.execute_sql(sql)
 
                     database.execute_sql(f'drop table {tmp_name}')
+            case 'change_column':
+                new_field = action.new_field
+                field = new_field.__class__(
+                    null=new_field.null,
+                    index=new_field.index,
+                    unique=new_field.unique,
+                    default=new_field.default,
+                    primary_key=new_field.primary_key,
+                    constraints=new_field.constraints,
+                    sequence=new_field.sequence,
+                    collation=new_field.collation,
+                    unindexed=new_field.unindexed,
+                    index_type=new_field.index_type,
+                )
+                migrate.migrate(
+                    migrator.alter_column_type(action.table_name, action.column_name, field),
+                )
             case _:
                 raise ValueError(f'unknown action {action}')
         after_action(action)

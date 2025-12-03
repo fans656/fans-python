@@ -174,6 +174,33 @@ def test_del_indexes():
     assert ('code', 'name') not in indexes
 
 
+def test_change_column_type():
+    database = peewee.SqliteDatabase(':memory:')
+    
+    class Foo(peewee.Model):
+        
+        name = peewee.TextField(primary_key=True)
+        age = peewee.IntegerField()
+    
+    database.bind([Foo])
+    database.create_tables([Foo])
+    Foo.insert_many([
+        {'name': 'foo', 'age': 3},
+        {'name': 'bar', 'age': 13},
+    ]).execute()
+    assert [d.age for d in Foo.select(Foo.age).order_by(Foo.age)] == [3, 13]
+    
+    class Foo(peewee.Model):
+        
+        name = peewee.TextField(primary_key=True)
+        age = peewee.TextField()
+    
+    sync(Foo, database=database)
+
+    database.bind([Foo])
+    assert [d.age for d in Foo.select(Foo.age).order_by(Foo.age)] == ['13', '3']
+
+
 class Test_misc:
     
     def test_noop_when_no_models(self):
