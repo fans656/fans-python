@@ -355,6 +355,7 @@ class Collection:
                             }).execute()
                 
                 def after_action(action):
+                    print('action', action)
                     match action.type:
                         case 'add_column':
                             field = getattr(model, self._auto_data_field)
@@ -446,21 +447,26 @@ def _model_field_from_field_spec(spec):
 def _normalized_fields(options):
     fields = options.get('fields', {})
 
+    for name, spec in fields.items():
+        spec = _normalized_field_spec(name, spec)
+        fields[name] = spec
+        if spec.get('primary_key'):
+            options['auto_key_field'] = None
+            options['primary_key'] = name
+
     auto_key_field = options['auto_key_field']
     if auto_key_field is not None and auto_key_field == options['primary_key']:
-        fields[auto_key_field] = options['auto_key_type']
+        fields[auto_key_field] = _normalized_field_spec(auto_key_field, options['auto_key_type'])
     
     auto_data_field = options['auto_data_field']
     if auto_data_field is not None:
-        fields[auto_data_field] = 'str'
+        fields[auto_data_field] = _normalized_field_spec(auto_data_field, 'str')
     
     primary_key = options['primary_key']
     composite_key = isinstance(primary_key, (tuple, list))
     for name, spec in fields.items():
-        spec = _normalized_field_spec(name, spec)
         if not composite_key and name == primary_key:
             spec['primary_key'] = True
-        fields[name] = spec
 
     return fields
 
@@ -547,6 +553,7 @@ def _set_options_defaults(options, *, table_name=None, database=None):
     options['_empty_schema'] = 'fields' not in options
 
     options.setdefault('indexes', [])
+
     options['fields'] = _normalized_fields(options)
     
     return options

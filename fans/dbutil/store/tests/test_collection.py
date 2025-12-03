@@ -189,6 +189,41 @@ class Test_auto_migration:
         })
         assert [d.age for d in c.model.select().order_by(c.model.age)] == ['13', '3']
 
+    def test_add_index_remove_index(self):
+        database = peewee.SqliteDatabase(':memory:')
+
+        #c = Collection('foo', database, **{
+        #    'fields': {
+        #        'name': {'type': 'str'},
+        #        'gender': {'type': 'str'},
+        #        'age': {'type': 'int'},
+        #    },
+        #})
+        #assert not c.model._meta.indexes
+
+        class Foo(peewee.Model):
+            
+            name = peewee.TextField(primary_key=True)
+            gender = peewee.TextField(index=True)
+            age = peewee.IntegerField()
+        
+        database.bind([Foo])
+        database.create_tables([Foo])
+        #c = Collection('foo', database, **{
+        #    'fields': {
+        #        'name': {'type': 'str'},
+        #        'gender': {'type': 'str', 'index': True},
+        #        'age': {'type': 'int'},
+        #    },
+        #})
+        print('indexes', Foo._meta.indexes)
+        print(next(database.execute_sql('SELECT sql FROM sqlite_master WHERE type="table";')))
+        print(next(database.execute_sql('SELECT name, sql FROM sqlite_master WHERE type="index";')))
+        print(next(database.execute_sql('PRAGMA index_list("foo");')))
+        print(next(database.execute_sql('EXPLAIN QUERY PLAN SELECT * FROM foo WHERE gender = ?;', ('male',))))
+        #print('indexes', c.model._meta.indexes)
+        #print(c.model._meta.fields['gender'].index)
+
 
 class Test_get:
     
@@ -338,6 +373,40 @@ class Test_misc:
             'database': ':memory:',
             'table': 'foo',
         })
+    
+    def test_primary_key_specify(self):
+        # no specify
+        c = Collection('foo')
+        assert c.model._meta.primary_key.column_name == '_key'
+
+        # specify in field
+        c = Collection('foo', **{
+            'fields': {
+                'name': {'type': 'str', 'primary_key': True},
+                'age': {'type': 'int'},
+            },
+        })
+        assert c.model._meta.primary_key.column_name == 'name'
+
+        # specify separately
+        c = Collection('foo', **{
+            'fields': {
+                'name': {'type': 'str'},
+                'age': {'type': 'int'},
+            },
+            'primary_key': 'name',
+        })
+        assert c.model._meta.primary_key.column_name == 'name'
+
+        # specify composite key
+        c = Collection('foo', **{
+            'fields': {
+                'name': {'type': 'str'},
+                'age': {'type': 'int'},
+            },
+            'primary_key': ['name', 'age'],
+        })
+        assert c.model._meta.primary_key.field_names == ('name', 'age')
 
 
 def test_normalized_fields():

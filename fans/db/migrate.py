@@ -241,15 +241,14 @@ def _sync_model(model: peewee.Model, database, *, execute_action, existed_models
                 'column_name': name,
             })
         
-        # change column types
         old_model = existed_models.get(model.table_name)
         if old_model:
+            # change column types
             for field_name, field in model.meta.fields.items():
                 old_field = old_model._meta.fields.get(field_name)
-                need_change = False
-                if old_field.field_type != field.field_type:
-                    need_change = True
-                if need_change:
+                if not old_field:
+                    continue
+                if not _need_change_column(old_field, field):
                     execute_action({
                         'type': 'change_column',
                         'table_name': model.table_name,
@@ -258,7 +257,35 @@ def _sync_model(model: peewee.Model, database, *, execute_action, existed_models
                         'new_field': field,
                     })
 
+            exp_indexes = {d._name: d for d in model.meta.fields_to_index()}
+            got_indexes = {d._name: d for d in old_model._meta.fields_to_index()}
+            exp_index_names = set(exp_indexes.keys())
+            got_index_names = set(got_indexes.keys())
+
+            ## add indexes
+            #for index_name in exp_index_names - got_index_names:
+            #    execute_action({
+            #        'type': 'add_index',
+            #        'table_name': model.table_name,
+            #        'index': index_name,
+            #    })
+
+            ## drop indexes
+            #for index_name in got_index_names - exp_index_names:
+            #    execute_action({
+            #        'type': 'drop_index',
+            #        'table_name': model.table_name,
+            #        'index_name': index_name,
+            #    })
+
     return model
+
+
+def _need_change_column(x, y):
+    for attr_name in ['field_type', 'null']:
+        if getattr(x, attr_name) != getattr(y, attr_name):
+            return False
+    return True
 
 
 def _execute_action(
