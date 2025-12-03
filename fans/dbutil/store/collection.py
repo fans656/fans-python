@@ -21,7 +21,7 @@ Manage a database table as a collection of items:
 
 by default item data is JSON serialized into `__data` column:
 
-    __key   __data
+    _key    _data
     foo     {"name":"foo","age":7}
     bar     {"name":"bar","age":5}
 
@@ -33,7 +33,7 @@ you can specify fields to be in separate column:
         },
     })
 
-    # __key   age     __data
+    # _key    age     _data
     # foo     7       {"name":"foo"}
     # bar     5       {"name":"bar"}
 
@@ -50,7 +50,7 @@ or specify primary key:
     c.put({'node_id': 123, 'time_pos': 60.0, 'tagging': 'thumb'})
     c.put({'node_id': 456, 'time_pos': 10.0, 'rating': 5})
 
-    # node_id     time_pos    __data
+    # node_id     time_pos    _data
     # 123         60.0        {'tagging': 'thumb'}
     # 456         10.0        {'rating': 5}
 
@@ -98,14 +98,18 @@ When you change collection schema, by default the underlying table will be auto 
     
     c = Collection('person', database)
     c.put({'name': 'foo', 'age': 3})
-
-    # __key   __data
-    # foo     {"name":"foo","age":3}
     
     # later changed to
     c = Collection('person', database, fields={'age': {'type': 'int', 'index': True}})
 
-    # __key   __data            age     
+    # then table changed from:
+    #
+    # _key    _data
+    # foo     {"name":"foo","age":3}
+
+    # to:
+    #
+    # _key    _data             age     
     # foo     {"name":"foo"}    3       
 """
 import json
@@ -270,7 +274,7 @@ class Collection:
     
     @functools.cached_property
     def migration(self):
-        return migrate.Migration()
+        return migrate.Migration(self.database)
     
     def __len__(self):
         return self.count()
@@ -338,21 +342,46 @@ class Collection:
 
         if table_name in database.get_tables():
             if self._opt('_empty_schema'):
-                models = _cached(lambda: models_from_database(database), self._database_level_cache, 'models')
-                model = models[table_name]
+                model = self._database_models[table_name]  # just use existing table model
             else:
+                old_model = self._database_models[table_name]
+
+                def before_action(action):
+                    match action.type:
+                        case 'drop_column':
+                            column_name = action.column_name
+                            old_model.update(**{
+                                self._auto_data_field: peewee.fn.json_set(
+                                    peewee.fn.json(getattr(old_model, self._auto_data_field)),
+                                    f'$.{column_name}',
+                                    getattr(old_model, column_name),
+                                ),
+                            }).execute()
+                
+                def after_action(action):
+                    match action.type:
+                        case 'add_column':
+                            field = getattr(model, self._auto_data_field)
+                            column_name = action.column_name
+                            model.update(**{
+                                column_name: peewee.fn.json_extract(
+                                    field,
+                                    f"$.{column_name}",
+                                ),
+                                self._auto_data_field: peewee.fn.json_remove(
+                                    field,
+                                    f"$.{column_name}",
+                                ),
+                            }).execute()
+
                 # minor todo: pass cached models to sync
-                performed_actions = migrate.sync(model, database=database, droptables=False)
-                if performed_actions:
-                    for action in performed_actions:
-                        match action['type']:
-                            case 'add_column':
-                                model.update(**{
-                                    action['column_name']: peewee.fn.json_extract(
-                                        getattr(model, self._auto_data_field),
-                                        '$.age',
-                                    ),
-                                }).execute()
+                migrate.sync(
+                    model,
+                    database=database,
+                    droptables=False,
+                    before_action=before_action,
+                    after_action=after_action,
+                )
         else:
             database.bind([model])
             database.create_tables([model])
@@ -373,6 +402,10 @@ class Collection:
         if not row:
             return {}
         return self._row_to_item(row)
+    
+    @functools.cached_property
+    def _database_models(self):
+        return _cached(lambda: models_from_database(self.database), self._database_level_cache, 'models')
 
 
 def _model_from_options(options, table_name, database):
@@ -510,8 +543,8 @@ def _set_options_defaults(options, *, table_name=None, database=None):
     options.setdefault('order', 'keep')
 
     options.setdefault('auto_key_type', 'str')
-    options.setdefault('auto_key_field', '__key')
-    options.setdefault('auto_data_field', '__data')
+    options.setdefault('auto_key_field', '_key')
+    options.setdefault('auto_data_field', '_data')
     options.setdefault('primary_key', options['auto_key_field'])
     options.setdefault('database', ':memory:')
     

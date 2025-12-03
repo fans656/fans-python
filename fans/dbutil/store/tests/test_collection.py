@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import peewee
 
@@ -112,31 +114,61 @@ class Test_readme:
         ]
 
 
-def test_usage_auto_migration():
-    database = peewee.SqliteDatabase(':memory:')
+class Test_auto_migration:
 
-    c = Collection('foo', database)
-    c.put({'name': 'foo', 'age': 3})
+    def test_add_column_remove_column(self):
+        """
+        1. Initially no separate column:
+        
+            _key    _data
+            foo     {"name":"foo","age":3}
+        
+        2. Then specify 'age' as separate column:
+        
+            _key    _data           age
+            foo     {"name":"foo"}  3
 
-    # with schema: age as separate column using index
-    c = Collection('foo', database, **{
-        'fields': {
-            'age': {'type': 'int', 'index': True},
-        },
-    })
+        3. Then remove 'age' column again (with 'gender' added, otherwise empty schema won't do migration):
+        
+            _key    _data                   gender
+            foo     {"name":"foo","age":3}  null
+        """
+        database = peewee.SqliteDatabase(':memory:')
 
-    fields = c.model._meta.fields
-    assert 'age' in fields  # column added
+        # 1.
+        c = Collection('foo', database)
+        c.put({'name': 'foo', 'age': 3})
 
-    field = fields['age']
-    assert field.index  # is index
-    
-    assert c.model.get_by_id('foo').age == 3  # field value populated
-    
-    # put/get after table change
-    c.put({'name': 'bar', 'age': 5})
-    assert c.model.get_by_id('bar').age == 5
-    assert c.get('bar') == {'name': 'bar', 'age': 5}
+        # 2.
+        c = Collection('foo', database, **{
+            'fields': {
+                'age': {'type': 'int', 'index': True},
+            },
+        })
+
+        fields = c.model._meta.fields
+        assert 'age' in fields  # column added
+        field = fields['age']
+        assert field.index  # is index
+        
+        row = c.model.get_by_id('foo')
+        assert row.age == 3  # value populated
+        assert 'age' not in json.loads(row._data)  # value removed from auto data field
+        
+        # put/get after table change
+        c.put({'name': 'bar', 'age': 5})
+        assert c.model.get_by_id('bar').age == 5
+        assert c.get('bar') == {'name': 'bar', 'age': 5}
+
+        # 3.
+        c = Collection('foo', database, **{
+            'fields': {
+                'gender': {'type': 'str', 'index': True},
+            },
+        })
+        fields = c.model._meta.fields
+        assert 'age' not in fields  # column removed
+        assert c.get('foo') == {'name': 'foo', 'age': 3, 'gender': None}  # value re-add into data field
 
 
 class Test_get:
@@ -220,13 +252,6 @@ class Test_remove:
         assert len(c) == 0
 
 
-class Test_migration:
-    
-    def test_migration_attr(self):
-        c = Collection('person')
-        assert isinstance(c.migration, migrate.Migration)
-
-
 class Test_option_key:
     
     def test_default_id_key_name(self, c):
@@ -298,8 +323,8 @@ class Test_misc:
 
 def test_normalized_fields():
     fields = _set_options_defaults({})['fields']
-    assert '__key' in fields
-    assert '__data' in fields
+    assert '_key' in fields
+    assert '_data' in fields
 
     fields = _set_options_defaults({
         'fields': {
