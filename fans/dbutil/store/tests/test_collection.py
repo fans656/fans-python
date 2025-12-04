@@ -192,37 +192,32 @@ class Test_auto_migration:
     def test_add_index_remove_index(self):
         database = peewee.SqliteDatabase(':memory:')
 
-        #c = Collection('foo', database, **{
-        #    'fields': {
-        #        'name': {'type': 'str'},
-        #        'gender': {'type': 'str'},
-        #        'age': {'type': 'int'},
-        #    },
-        #})
-        #assert not c.model._meta.indexes
+        c = Collection('foo', database, **{
+            'fields': {
+                'name': {'type': 'str'},
+                'gender': {'type': 'str'},
+                'age': {'type': 'int'},
+            },
+        })
+        assert 'foo_gender' not in {d.name for d in database.get_indexes('foo')}
 
-        class Foo(peewee.Model):
-            
-            name = peewee.TextField(primary_key=True)
-            gender = peewee.TextField(index=True)
-            age = peewee.IntegerField()
-        
-        database.bind([Foo])
-        database.create_tables([Foo])
-        #c = Collection('foo', database, **{
-        #    'fields': {
-        #        'name': {'type': 'str'},
-        #        'gender': {'type': 'str', 'index': True},
-        #        'age': {'type': 'int'},
-        #    },
-        #})
-        print('indexes', Foo._meta.indexes)
-        print(next(database.execute_sql('SELECT sql FROM sqlite_master WHERE type="table";')))
-        print(next(database.execute_sql('SELECT name, sql FROM sqlite_master WHERE type="index";')))
-        print(next(database.execute_sql('PRAGMA index_list("foo");')))
-        print(next(database.execute_sql('EXPLAIN QUERY PLAN SELECT * FROM foo WHERE gender = ?;', ('male',))))
-        #print('indexes', c.model._meta.indexes)
-        #print(c.model._meta.fields['gender'].index)
+        c = Collection('foo', database, **{
+            'fields': {
+                'name': {'type': 'str'},
+                'gender': {'type': 'str', 'index': True},
+                'age': {'type': 'int'},
+            },
+        })
+        assert 'foo_gender' in {d.name for d in database.get_indexes('foo')}
+
+        c = Collection('foo', database, **{
+            'fields': {
+                'name': {'type': 'str'},
+                'gender': {'type': 'str'},
+                'age': {'type': 'int'},
+            },
+        })
+        assert 'foo_gender' not in {d.name for d in database.get_indexes('foo')}
 
 
 class Test_get:

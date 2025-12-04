@@ -355,7 +355,6 @@ class Collection:
                             }).execute()
                 
                 def after_action(action):
-                    print('action', action)
                     match action.type:
                         case 'add_column':
                             field = getattr(model, self._auto_data_field)
