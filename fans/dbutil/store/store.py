@@ -6,12 +6,18 @@ from .collection import Collection
 
 class Store:
     
-    def __init__(self, arg: str|peewee.Database, **options):
+    def __init__(
+        self,
+        arg: str|peewee.Database = ':memory:',
+        collection_class=Collection,
+        **options,
+    ):
         if isinstance(arg, peewee.Database):
             self.database = arg
         else:
-            self.database = peewee.SqliteDatabase(arg or ':memory:')
+            self.database = peewee.SqliteDatabase(arg)
         
+        self.collection_class = collection_class
         self.options = options
         
         self._name_to_collection = {}
@@ -20,7 +26,7 @@ class Store:
     def get_collection(self, name: str, **options) -> Collection:
         collection = self._name_to_collection.get(name)
         if collection is None:
-            collection = self._name_to_collection[name] = Collection(
+            collection = self._name_to_collection[name] = self.collection_class(
                 name,
                 self.database,
                 _database_level_cache=self._database_level_cache,
