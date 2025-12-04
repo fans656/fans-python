@@ -218,6 +218,66 @@ class Test_auto_migration:
             },
         })
         assert 'foo_gender' not in {d.name for d in database.get_indexes('foo')}
+    
+    def test_change_primary_key(self):
+        database = peewee.SqliteDatabase(':memory:')
+
+        c = Collection('foo', database)
+        assert c.model._meta.primary_key.column_name == '_key'
+
+        c = Collection('foo', database, **{
+            'fields': {
+                'name': {'type': 'str', 'primary_key': True},
+                'age': {'type': 'int'},
+            },
+        })
+        assert c.model._meta.primary_key.column_name == 'name'
+
+        c = Collection('foo', database, **{
+            'fields': {
+                'uid': {'type': 'str', 'primary_key': True},
+                'name': {'type': 'str'},
+                'age': {'type': 'int'},
+            },
+        })
+        assert c.model._meta.primary_key.column_name == 'uid'
+
+        c = Collection('foo', database, **{
+            'fields': {
+                'city': {'type': 'str'},
+                'name': {'type': 'str'},
+                'age': {'type': 'int'},
+            },
+            'primary_key': ['city', 'name'],
+        })
+        assert c.model._meta.primary_key.field_names == ('city', 'name')
+    
+    def test_rename_table(self):
+        database = peewee.SqliteDatabase(':memory:')
+
+        c = Collection('foo', database)
+        assert database.get_tables() == ['foo']
+
+        c = Collection('bar', database, old_name='foo')
+        assert database.get_tables() == ['bar']
+    
+    def test_rename_column(self):
+        database = peewee.SqliteDatabase(':memory:')
+
+        c = Collection('foo', database, **{
+            'fields': {
+                'nodeid': 'int',
+            },
+        })
+        assert 'nodeid' in c.model._meta.fields
+
+        c = Collection('foo', database, **{
+            'fields': {
+                'node_id': {'type': 'int', 'old_name': 'nodeid'},
+            },
+        })
+        assert 'nodeid' not in c.model._meta.fields
+        assert 'node_id' in c.model._meta.fields
 
 
 class Test_get:

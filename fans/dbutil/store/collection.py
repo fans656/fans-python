@@ -334,7 +334,19 @@ class Collection:
                 raise ValueError(f'invalid on_conflict behavior "{on_conflict}"')
 
     def _derive_model(self, table_name, database):
-        model = _model_from_options(self.options, table_name, database)
+        renames = []
+        if (old_name := self._opt('old_name')):
+            if old_name in database.get_tables():
+                renames.append((old_name.capitalize(), table_name.capitalize()))
+
+        model = _model_from_options(self.options, table_name, database, renames=renames)
+        
+        if renames:
+            migrate.sync(
+                (model, renames),
+                database=database,
+                droptables=False,
+            )
 
         if table_name in database.get_tables():
             if self._opt('_empty_schema'):
@@ -404,11 +416,13 @@ class Collection:
         return _cached(lambda: models_from_database(self.database), self._database_level_cache, 'models')
 
 
-def _model_from_options(options, table_name, database):
+def _model_from_options(options, table_name, database, *, renames=[]):
     body = {}
     
     for name, spec in options['fields'].items():
         body[name] = _model_field_from_field_spec(spec)
+        if spec.get('old_name'):
+            renames.append((spec['old_name'], name))
     
     meta_body = {}
     
@@ -548,6 +562,7 @@ def _set_options_defaults(options, *, table_name=None, database=None):
     options.setdefault('auto_data_field', '_data')
     options.setdefault('primary_key', options['auto_key_field'])
     options.setdefault('database', ':memory:')
+    options.setdefault('old_name', None)
     
     options['_empty_schema'] = 'fields' not in options
 
