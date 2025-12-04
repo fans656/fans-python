@@ -468,11 +468,11 @@ def _normalized_fields(options):
             options['primary_key'] = name
 
     auto_key_field = options['auto_key_field']
-    if auto_key_field is not None and auto_key_field == options['primary_key']:
+    if auto_key_field and auto_key_field == options['primary_key']:
         fields[auto_key_field] = _normalized_field_spec(auto_key_field, options['auto_key_type'])
     
     auto_data_field = options['auto_data_field']
-    if auto_data_field is not None:
+    if auto_data_field:
         fields[auto_data_field] = _normalized_field_spec(auto_data_field, 'str')
     
     primary_key = options['primary_key']
