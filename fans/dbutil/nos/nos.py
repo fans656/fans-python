@@ -5,34 +5,37 @@ from fans.dbutil.store.collection import Collection
 from fans.dbutil.tagging import tagging
 
 
+def _delegated(method_name):
+    def func(self, *args, collection: str = 'default', **kwargs):
+        c = self.store.get_collection(collection)
+        return getattr(c, method_name)(*args, **kwargs)
+    func.__name__ = method_name
+    return func
+
+
 class Nos:
     
     def __init__(self, *args, **kwargs):
         kwargs.setdefault('collection_class', EnhancedCollection)
         self.store = Store(*args, **kwargs)
     
-    def get(self, *args, collection: str = 'default', **kwargs):
-        c = self.store.get_collection(collection)
-        return c.get(*args, **kwargs)
-    
-    def put(self, *args, collection: str = 'default', **kwargs):
-        c = self.store.get_collection(collection)
-        return c.put(*args, **kwargs)
-    
-    def count(self, *args, collection: str = 'default', **kwargs):
-        c = self.store.get_collection(collection)
-        return c.count(*args, **kwargs)
-    
     def collection(self, name: str):
         return self.store.get_collection(name)
+    
+    get = _delegated('get')
+    put = _delegated('put')
+    update = _delegated('update')
+    remove = _delegated('remove')
+    count = _delegated('count')
+    list = _delegated('list')
 
 
 class EnhancedCollection(Collection):
     
-    def tag(self, *args, **kwargs):
+    def add_tag(self, *args, **kwargs):
         self.tagging.add_tag(*args, **kwargs)
     
-    def untag(self, *args, **kwargs):
+    def remove_tag(self, *args, **kwargs):
         self.tagging.remove_tag(*args, **kwargs)
     
     def find(self, *args, **kwargs):

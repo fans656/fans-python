@@ -15,5 +15,5 @@ def test_simple_usage():
     assert persons.get('foo') == {'name': 'foo', 'age': 3}
     assert persons.get('bar') == {'name': 'bar', 'age': 5}
     
-    persons.tag('foo', 'furious')
+    persons.add_tag('foo', 'furious')
     assert persons.find('furious') == [{'name': 'foo', 'age': 3}]
