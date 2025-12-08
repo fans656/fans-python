@@ -23,7 +23,6 @@ class CLI:
         if conf:
             service = Service.get_instance()
             service.setup(conf)
-            return
         else:
             logger.warning('no conf specified')
         uvicorn.run(app, host=host, port=port)

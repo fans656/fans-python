@@ -113,6 +113,8 @@ When you change collection schema, by default the underlying table will be auto 
     # foo     {"name":"foo"}    3       
 """
 import json
+import uuid
+import itertools
 import functools
 from collections.abc import Iterable
 
@@ -207,6 +209,8 @@ class Collection:
         elif callable(arg):
             prepare_query = arg
             query = prepare_query(self.model)
+            if isinstance(query, peewee.Expression):
+                query = self.model.select().where(query)
             if self._opt('raw', options):
                 return query
             return [self._row_to_item(row, options) for row in query]
@@ -236,7 +240,7 @@ class Collection:
         else:
             raise TypeError(f'unknown item(s) of type {type(item_or_items)}')
         
-        rows = (self._item_to_row(item, options) for item in items)
+        rows = (self._item_to_row(item) for item in items)
 
         on_conflict = self._on_conflict(options)
         for _rows in chunked(rows, self._opt('chunk_size', options)):
@@ -272,6 +276,59 @@ class Collection:
     def list(self, **options):
         return list(self.iter(**options))
     
+    def sync(self, items: Iterable[dict], **options):
+        """
+        Sync collection from source of iterable items.
+        
+        - Existed items not in source will be removed
+        """
+        latest_key_table_name = f'{self.table_name}_latest_{uuid.uuid4().hex}'
+        primary_key = self.model._meta.primary_key
+        Meta = type('Meta', (), {
+            'database': self.database,
+            'temporary': True,
+        })
+        if isinstance(primary_key, peewee.CompositeKey):
+            body = {'Meta': Meta}
+            for field_name in primary_key.field_names:
+                body[field_name] = getattr(self.model, field_name).__class__()
+            body['primary_key'] = peewee.CompositeKey(*primary_key.field_names)
+            Latest = type(latest_key_table_name, (peewee.Model,), body)
+        else:
+            Latest = type(latest_key_table_name, (peewee.Model,), {
+                'Meta': Meta,
+                'key': primary_key.__class__(primary_key=True),
+            })
+        Latest.create_table()
+
+        model = self.model
+        on_conflict = self._on_conflict(options)
+        item_to_row = self._item_to_row
+        get_row_key = self._get_row_key
+        getter = lambda d, attr_name: d.get(attr_name)
+        if isinstance(primary_key, peewee.CompositeKey):
+            for _items in chunked(items, self._opt('chunk_size', options)):
+                rows = map(item_to_row, _items)
+                rows_for_key, rows_for_insert = itertools.tee(rows)
+                Latest.insert_many((get_row_key(d, getter) for d in rows_for_key)).execute()
+                on_conflict(model.insert_many(rows_for_insert)).execute()
+            model.delete().where(
+                self._primary_key.not_in(
+                    Latest.select(*(
+                        getattr(Latest, field_name) for field_name in primary_key.field_names
+                    ))
+                )
+            ).execute()
+        else:
+            _get_item_key = self._get_item_key
+            _item_to_row = self._item_to_row
+            for _items in chunked(items, self._opt('chunk_size', options)):
+                _items_for_key, _items_for_item = itertools.tee(_items)
+                Latest.insert_many(((_get_item_key(d),) for d in _items_for_key)).execute()
+                on_conflict(model.insert_many(map(_item_to_row, _items_for_item))).execute()
+            model.delete().where(self._primary_key.not_in(Latest.select(Latest.key))).execute()
+        Latest.drop_table()
+    
     def __len__(self):
         return self.count()
     
@@ -281,7 +338,7 @@ class Collection:
     def _opt(self, name, options={}):
         return options.get(name, self.options.get(name))
     
-    def _item_to_row(self, item, options):
+    def _item_to_row(self, item):
         row = {}
         if self._has_auto_key_field:
             row[self._auto_key_field] = self._get_item_key(item)
@@ -303,15 +360,16 @@ class Collection:
             for field_name in self._field_names
         }
         if self._has_auto_data_field:
-            ret.update(json.loads(getattr(row, self._auto_data_field)))
+            if data := getattr(row, self._auto_data_field):
+                ret.update(json.loads(data))
         return ret
     
-    def _get_row_key(self, row):
+    def _get_row_key(self, row, getter=getattr):
         if self._has_auto_key_field:
-            return getattr(row, self._auto_key_field)
+            return getter(row, self._auto_key_field)
         else:
             return tuple(
-                getattr(row, field_name)
+                getter(row, field_name)
                 for field_name in self.model._meta.primary_key.field_names
             )
     
@@ -414,6 +472,14 @@ class Collection:
     @functools.cached_property
     def _database_models(self):
         return _cached(lambda: models_from_database(self.database), self._database_level_cache, 'models')
+    
+    @property
+    def _primary_key(self):
+        return self._meta.primary_key
+    
+    @property
+    def _meta(self):
+        return self.model._meta
 
 
 def _model_from_options(options, table_name, database, *, renames=[]):

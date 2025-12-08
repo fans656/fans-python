@@ -291,12 +291,19 @@ class Test_get:
         assert c.get(keys([1, 2])) == [item(1), item(2)]  # get multiple items by keys
         assert c.get(keys([2, 1])) == [item(2), item(1)]  # same order as given keys
     
-    def test_callable(self):
+    def test_callable_query(self):
         c = Collection('person', fields={'age': {'type': 'int', 'index': True}})
         c.put({'name': 'foo', 'age': 3})
         c.put({'name': 'bar', 'age': 5})
         
         assert c.get(lambda m: m.select().where(m.age > 4))[0] == {'name': 'bar', 'age': 5}
+    
+    def test_callable_pred(self):
+        c = Collection('person', fields={'age': {'type': 'int', 'index': True}})
+        c.put({'name': 'foo', 'age': 3})
+        c.put({'name': 'bar', 'age': 5})
+        
+        assert c.get(lambda m: m.age > 4)[0] == {'name': 'bar', 'age': 5}
     
     def test_raw(self):
         c = Collection('person', fields={'age': 'int'})
@@ -359,6 +366,19 @@ class Test_remove:
         
         c.remove([key(i) for i in range(n)])  # remove multiple
         assert len(c) == 0
+
+
+class Test_sync:
+    
+    @pytest.mark.parametrize('conf', CONFS)
+    def test_default(self, c, key, item, conf):
+        iter_zones = lambda: (item(i) for i in range(1, 10))
+        c.sync(iter_zones(), chunk_size=5)
+        assert [d['val'] for d in c.list()] == [1,2,3,4,5,6,7,8,9]
+
+        iter_zones = lambda: (item(i) for i in range(1, 10) if i % 2 == 0)
+        c.sync(iter_zones(), chunk_size=5)
+        assert [d['val'] for d in c.list()] == [2,4,6,8]
 
 
 class Test_option_key:

@@ -10,19 +10,21 @@ class Nos:
     def __init__(self, *args, **kwargs):
         kwargs.setdefault('collection_class', EnhancedCollection)
         self.store = Store(*args, **kwargs)
-        
-        self._cached_domains = {}
     
-    def get(self, *args, domain: str = 'default', **kwargs):
-        c = self.store.get_collection(domain)
+    def get(self, *args, collection: str = 'default', **kwargs):
+        c = self.store.get_collection(collection)
         return c.get(*args, **kwargs)
     
-    def put(self, *args, domain: str = 'default', **kwargs):
-        c = self.store.get_collection(domain)
+    def put(self, *args, collection: str = 'default', **kwargs):
+        c = self.store.get_collection(collection)
         return c.put(*args, **kwargs)
     
-    def domain(self, domain: str):
-        return self.store.get_collection(domain)
+    def count(self, *args, collection: str = 'default', **kwargs):
+        c = self.store.get_collection(collection)
+        return c.count(*args, **kwargs)
+    
+    def collection(self, name: str):
+        return self.store.get_collection(name)
 
 
 class EnhancedCollection(Collection):

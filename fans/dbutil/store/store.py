@@ -8,14 +8,14 @@ class Store:
     
     def __init__(
         self,
-        arg: str|peewee.Database = ':memory:',
+        path: str|peewee.Database = ':memory:',
         collection_class=Collection,
         **options,
     ):
-        if isinstance(arg, peewee.Database):
-            self.database = arg
+        if isinstance(path, peewee.Database):
+            self.database = path
         else:
-            self.database = peewee.SqliteDatabase(arg)
+            self.database = peewee.SqliteDatabase(path)
         
         self.collection_class = collection_class
         self.options = options
