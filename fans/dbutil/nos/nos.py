@@ -28,15 +28,19 @@ class Nos:
     remove = _delegated('remove')
     count = _delegated('count')
     list = _delegated('list')
+    tag = _delegated('tag')
+    untag = _delegated('untag')
+    find = _delegated('find')
+    tags = _delegated('tags')
 
 
 class EnhancedCollection(Collection):
     
-    def add_tag(self, *args, **kwargs):
-        self.tagging.add_tag(*args, **kwargs)
+    def tag(self, *args, **kwargs):
+        self.tagging.tag(*args, **kwargs)
     
-    def remove_tag(self, *args, **kwargs):
-        self.tagging.remove_tag(*args, **kwargs)
+    def untag(self, *args, **kwargs):
+        self.tagging.untag(*args, **kwargs)
     
     def find(self, *args, **kwargs):
         kwargs['return_query'] = True

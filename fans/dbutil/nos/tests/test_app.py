@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -49,6 +51,54 @@ def test_crud(client):
     assert client.post('/api/nos/remove', params={'key': 'foo'}).status_code == 200
     
     assert client.get('/api/nos/count').json() == 1
+
+
+def test_tagging(client):
+    assert client.post('/api/nos/put', json=[
+        {'key': i} for i in range(10)
+    ]).status_code == 200
+    assert client.get('/api/nos/count').json() == 10
+
+    #assert client.post('/api/nos/tag', json=[
+    #    {'key': i} for i in range(10)
+    #]).status_code == 200
+
+
+class Test_put:
+    
+    def test_options(self, client):
+        client.post('/api/nos/put', json={'name': 'foo', 'age': 3})
+
+        client.post('/api/nos/put', json={'name': 'foo', 'age': 5})
+        assert client.get('/api/nos/get', params={'key': 'foo'}).json() == {'name': 'foo', 'age': 5}
+
+        client.post('/api/nos/put', json={'name': 'foo', 'age': 7}, params={
+            'options': json.dumps({'on_conflict': 'ignore'}),
+        })
+        assert client.get('/api/nos/get', params={'key': 'foo'}).json() == {'name': 'foo', 'age': 5}
+
+
+class Test_get:
+    
+    def test_composite_key(self, client):
+        client.post('/api/nos/create_store', json={
+            'name': 'foo',
+            'collections': {
+                'default': {
+                    'fields': {
+                        'node_id': 'int',
+                        'time_pos': 'float',
+                        'tag': 'str',
+                    },
+                    'primary_key': ['node_id', 'time_pos'],
+                },
+            },
+        })
+        client.post('/api/nos/put', json={
+            'node_id': 1,
+            'time_pos': 5.0,
+            'tag': 'foo',
+        }, params={'store': 'foo'})
 
 
 @pytest.fixture

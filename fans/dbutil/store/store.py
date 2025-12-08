@@ -17,6 +17,8 @@ class Store:
         else:
             self.database = peewee.SqliteDatabase(path)
         
+        self._name_to_collection_options = options.pop('collections', {})
+        
         self.collection_class = collection_class
         self.options = options
         
@@ -30,6 +32,10 @@ class Store:
                 name,
                 self.database,
                 _database_level_cache=self._database_level_cache,
-                **{**self.options, **options},
+                **{
+                    **self.options,
+                    **self._name_to_collection_options.get(name, {}),
+                    **options,
+                },
             )
         return collection

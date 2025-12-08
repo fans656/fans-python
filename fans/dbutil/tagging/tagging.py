@@ -157,7 +157,7 @@ class tagging:
         self.database.bind([self.model])
         self.database.create_tables([self.model])
 
-    def add_tag(self, arg, *tags, chunk_size=500):
+    def tag(self, arg, *tags, chunk_size=500):
         """
         Add tag(s) for given key(s).
 
@@ -192,8 +192,9 @@ class tagging:
             items = arg
             for chunk in chunks(_ensure_flat_tuples(items), chunk_size):
                 self.model.insert_many(chunk).on_conflict_ignore().execute()
+    add_tag = tag
     
-    def remove_tag(self, key, *tags, chunk_size=50):
+    def untag(self, key, *tags, chunk_size=50):
         """
         Remove tag(s) for given key(s).
         
@@ -243,6 +244,7 @@ class tagging:
                 )
             '''
             self.database.execute_sql(sql)
+    remove_tag = untag
 
     def find(self, expr: str, return_query: bool = False):
         m = self.model

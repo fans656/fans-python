@@ -29,16 +29,19 @@ class Service:
         conf = _normalized_conf(conf)
         
         for store_spec in conf['stores']:
-            self._name_to_proxy[store_spec.name] = Proxy(store_spec)
+            self.create_store(store_spec)
         
         self._setup_done = True
     
-    def get(self, name: str):
+    def get_store(self, name: str):
         self._ensure_setup_done()
         proxy = self._name_to_proxy.get(name)
         if not proxy:
             return None
         return proxy.nos
+    
+    def create_store(self, spec):
+        self._name_to_proxy[spec.name] = Proxy(spec)
     
     def info(self):
         self._ensure_setup_done()
