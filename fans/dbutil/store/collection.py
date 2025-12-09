@@ -155,6 +155,8 @@ class Collection:
         self.model = self._derive_model(self.table_name, self.database)
         
         meta = self.model._meta
+        
+        self.is_composite_key = isinstance(meta.primary_key, peewee.CompositeKey)
 
         self._field_names = [d for d in meta.fields if not d.startswith('_')]
         self._field_names_set = set(self._field_names)

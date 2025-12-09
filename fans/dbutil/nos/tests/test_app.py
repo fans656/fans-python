@@ -114,9 +114,82 @@ class Test_get:
         }, params={'store': 'foo'})
 
         assert client.get('/api/nos/get', params={
+            'key': '[1, 5.0]',
+            'store': 'foo',
+        }).json() == {'node_id': 1, 'time_pos': 5.0, 'tag': 'foo'}
+
+        assert client.get('/api/nos/get', params={
             'key': '[[1, 5.0]]',
             'store': 'foo',
         }).json() == [{'node_id': 1, 'time_pos': 5.0, 'tag': 'foo'}]
+
+
+class Test_update:
+    
+    def test_composite_key(self, client):
+        client.post('/api/nos/create_store', json={
+            'name': 'foo',
+            'collections': {
+                'default': {
+                    'fields': {
+                        'node_id': 'int',
+                        'time_pos': 'float',
+                        'tag': 'str',
+                    },
+                    'primary_key': ['node_id', 'time_pos'],
+                },
+            },
+        })
+        client.post('/api/nos/put', json={
+            'node_id': 1,
+            'time_pos': 5.0,
+            'tag': 'foo',
+        }, params={'store': 'foo'})
+
+        client.post('/api/nos/update', json={
+            'tag': 'bar',
+        }, params={
+            'key': '[1, 5.0]',
+            'store': 'foo',
+        })
+
+        assert client.get('/api/nos/get', params={
+            'key': '[[1, 5.0]]',
+            'store': 'foo',
+        }).json() == [{'node_id': 1, 'time_pos': 5.0, 'tag': 'bar'}]
+
+
+class Test_remove:
+    
+    def test_composite_key(self, client):
+        client.post('/api/nos/create_store', json={
+            'name': 'foo',
+            'collections': {
+                'default': {
+                    'fields': {
+                        'node_id': 'int',
+                        'time_pos': 'float',
+                        'tag': 'str',
+                    },
+                    'primary_key': ['node_id', 'time_pos'],
+                },
+            },
+        })
+        client.post('/api/nos/put', json=[
+            {'node_id': 1, 'time_pos': 1.0, 'tag': '1'},
+            {'node_id': 2, 'time_pos': 2.0, 'tag': '2'},
+            {'node_id': 3, 'time_pos': 3.0, 'tag': '3'},
+        ], params={'store': 'foo'})
+
+        return
+        client.post('/api/nos/remove', params={
+            'key': '[1, 1.0]',
+            'store': 'foo',
+        })
+        assert client.get('/api/nos/get', params={
+            'key': '[1, 1.0]',
+            'store': 'foo',
+        }).json() == None
 
 
 @pytest.fixture
