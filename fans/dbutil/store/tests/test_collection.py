@@ -368,6 +368,65 @@ class Test_remove:
         assert len(c) == 0
 
 
+class Test_list:
+    
+    @pytest.mark.parametrize('conf', CONFS)
+    def test_default(self, c, item, items, conf):
+        c.put([item(i) for i in range(100)])
+        
+        # offset & limit
+        assert c.list(offset=10, limit=3) == items([10, 11, 12])
+        assert c.list(offset=20, limit=2) == items([20, 21])
+        assert c.list(offset=99) == items([99])
+        
+        # order desc
+        assert c.list(limit=3, order='-') == items([99, 98, 97])
+
+    def test_order_fields(self):
+        c = Collection('foo', **{
+            'fields': {
+                'name': {'type': 'str', 'primary_key': True},
+                'age': {'type': 'int', 'index': True},
+            },
+        })
+        c.put([
+            {'name': 'Alice', 'age': 15},
+            {'name': 'Aaron', 'age': 15},
+            {'name': 'Bob', 'age': 30},
+            {'name': 'Clarke', 'age': 90},
+            {'name': 'Carl', 'age': 62},
+        ])
+        
+        assert [d['name'] for d in c.list(order='name')] == [
+            'Aaron',
+            'Alice',
+            'Bob',
+            'Carl',
+            'Clarke',
+        ]
+        assert [d['name'] for d in c.list(order='-name')] == [
+            'Clarke',
+            'Carl',
+            'Bob',
+            'Alice',
+            'Aaron',
+        ]
+        assert [d['name'] for d in c.list(order='-age')] == [
+            'Clarke',
+            'Carl',
+            'Bob',
+            'Aaron',
+            'Alice',
+        ]
+        assert [d['name'] for d in c.list(order='-age,-name')] == [
+            'Clarke',
+            'Carl',
+            'Bob',
+            'Alice',
+            'Aaron',
+        ]
+
+
 class Test_sync:
     
     @pytest.mark.parametrize('conf', CONFS)
@@ -537,6 +596,11 @@ def item(request):
         def item(i, **overrides):
             return {'id': i, 'val': i, **overrides}
     return item
+
+
+@pytest.fixture
+def items(item):
+    return lambda xs: list(map(item, xs))
 
 
 @pytest.fixture

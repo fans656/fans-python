@@ -271,12 +271,55 @@ class Collection:
     def count(self):
         return self.model.select().count()
     
-    def iter(self, **options):
-        for row in self.model.select():
+    def iter(
+            self,
+            *,
+            offset: int = None,
+            limit: int = None,
+            order: str|list[str] = None,
+            **options,
+    ):
+        query = self.model.select()
+
+        if offset is not None:
+            query = query.offset(offset)
+
+        if limit is not None:
+            query = query.limit(limit)
+
+        desc = False
+        if order == '-':
+            order = None
+            desc = True
+
+        if order is not None:
+            if isinstance(order, str):
+                order = [d.strip() for d in order.split(',')]
+            order_fields = []
+            for order_field in order:
+                if order_field.startswith('-'):
+                    order_fields.append(getattr(self.model, order_field.lstrip('-')).desc())
+                else:
+                    order_fields.append(getattr(self.model, order_field))
+            query = query.order_by(*order_fields)
+        else:
+            model = self.model
+            if self.is_composite_key:
+                order_fields = [
+                    getattr(model, field_name)
+                    for field_name in model._meta.primary_key.field_names
+                ]
+            else:
+                order_fields = [model._meta.primary_key]
+            if desc:
+                order_fields = [d.desc() for d in order_fields]
+            query = query.order_by(*order_fields)
+
+        for row in query:
             yield self._row_to_item(row, options)
     
-    def list(self, **options):
-        return list(self.iter(**options))
+    def list(self, *args, **kwargs):
+        return list(self.iter(*args, **kwargs))
     
     def sync(self, items: Iterable[dict], **options):
         """

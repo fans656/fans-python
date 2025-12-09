@@ -80,8 +80,8 @@ def count_(c=collection_dep):
 
 
 @app.get('/api/nos/list')
-def list_(c=collection_dep):
-    return c.list()
+def list_(offset: int = None, limit: int = None, order: str = None, c=collection_dep):
+    return c.list(offset=offset, limit=limit, order=order)
 
 
 @app.post('/api/nos/tag')
