@@ -15,8 +15,8 @@ class Test_Service:
         })
 
         service = Service.get_instance()
-        assert isinstance(service.get('sample'), Nos)
-        assert not service.get('foo')
+        assert isinstance(service.get_store('sample'), Nos)
+        assert not service.get_store('foo')
 
 
 def test_normalized_conf():

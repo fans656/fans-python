@@ -44,8 +44,8 @@ def test_crud(client):
     }).status_code == 200
 
     assert client.get('/api/nos/list').json() == [
-        {'name': 'foo', 'age': 5},
         {'name': 'bar', 'age': 7},
+        {'name': 'foo', 'age': 5},
     ]
 
     assert client.post('/api/nos/remove', params={'key': 'foo'}).status_code == 200
