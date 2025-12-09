@@ -23,7 +23,16 @@ def put_(data: dict|list[dict], options: str = '{}', store: str = 'default', col
 
 
 @app.get('/api/nos/get')
-def get_(key: Key, store: str = 'default', collection: str = 'default'):
+def get_(
+        key: Key,
+        parse: bool = True,
+        store: str = 'default',
+        collection: str = 'default',
+):
+    if parse and isinstance(key, str) and key.startswith('[') and key.endswith(']'):
+        key = json.loads(key)
+        if key and isinstance(key[0], list):
+            key = [tuple(d) for d in key]
     return _nos(store).get(key, collection=collection)
 
 

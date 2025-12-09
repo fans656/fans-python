@@ -80,6 +80,19 @@ class Test_put:
 
 class Test_get:
     
+    def test_multiple(self, client):
+        client.post('/api/nos/put', json=[
+            {'name': 'foo', 'age': 3},
+            {'name': 'bar', 'age': 5},
+            {'name': 'baz', 'age': 7},
+        ])
+        assert client.get('/api/nos/get', params={
+            'key': '["foo", "bar"]',
+        }).json() == [
+            {'name': 'foo', 'age': 3},
+            {'name': 'bar', 'age': 5},
+        ]
+    
     def test_composite_key(self, client):
         client.post('/api/nos/create_store', json={
             'name': 'foo',
@@ -99,6 +112,11 @@ class Test_get:
             'time_pos': 5.0,
             'tag': 'foo',
         }, params={'store': 'foo'})
+
+        assert client.get('/api/nos/get', params={
+            'key': '[[1, 5.0]]',
+            'store': 'foo',
+        }).json() == [{'node_id': 1, 'time_pos': 5.0, 'tag': 'foo'}]
 
 
 @pytest.fixture
