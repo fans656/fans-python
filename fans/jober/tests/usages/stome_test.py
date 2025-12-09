@@ -16,7 +16,7 @@ class Test_api:
         func = mocker.Mock()
 
         name = 'paste xxx'
-        extra = {'data': }
+        extra = {'data': ''}
         kwargs = {'foo': 3, 'bar': 5}
         job = jober.run_job(
             func,

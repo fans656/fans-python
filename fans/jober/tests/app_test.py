@@ -19,7 +19,8 @@ from fans.jober.jober import Jober
 
 @pytest.fixture
 def client():
-    yield TestClient(root_app)
+    with TestClient(root_app) as client:
+        yield client
 
 
 @pytest_asyncio.fixture
@@ -111,6 +112,7 @@ class Test_prune_jobs:
     
     def test_prune(self, jober, mocker, client):
         job = jober.run_job(noop)
+        job.wait()
         pruned_jobs = client.post('/api/prune-jobs').json()
         assert len(pruned_jobs) == 1
         assert pruned_jobs[0]['id'] == job.id
@@ -139,6 +141,7 @@ class Test_logs:
                     print(i)
 
             job = jober.run_job(func, capture=capture)
+            job.wait()
 
             assert client.get("/api/logs", params={
                 'job_id': job.id,
