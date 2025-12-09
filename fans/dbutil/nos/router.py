@@ -36,6 +36,19 @@ def options_dep(options: str = None):
     return json.loads(options)
 
 
+@Depends
+def tagging_req_dep(req: dict):
+    key = req.pop('key')
+    if isinstance(key, list) and key and isinstance(key[0], list):
+        key = [tuple(d) for d in key]
+
+    tags = req.pop('tag')
+    if isinstance(tags, str):
+        tags = [tags]
+    
+    return bunch(key=key, tags=tags, options=req)
+
+
 @app.get('/api/nos/info')
 def info_():
     return Service.get_instance().info()
@@ -69,6 +82,26 @@ def count_(c=collection_dep):
 @app.get('/api/nos/list')
 def list_(c=collection_dep):
     return c.list()
+
+
+@app.post('/api/nos/tag')
+def tag_(req=tagging_req_dep, c=collection_dep):
+    return c.tag(req.key, *req.tags, **req.options)
+
+
+@app.get('/api/nos/find')
+def find_(query: str, c=collection_dep):
+    return c.find(query)
+
+
+@app.get('/api/nos/tags')
+def tags_(c=collection_dep):
+    return c.tags()
+
+
+@app.post('/api/nos/untag')
+def untag_(req=tagging_req_dep, c=collection_dep):
+    return c.untag(req.key, *req.tags, **req.options)
 
 
 @app.post('/api/nos/create_store')
