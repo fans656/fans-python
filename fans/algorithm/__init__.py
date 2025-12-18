@@ -18,7 +18,7 @@ def sweep_line_overlaps(
         get_end - callable to get interval end
         mutual - when interval_1 (first met) and interval_2 (second met) overlap,
             whether add interval_1 to overlaps of interval_2
-    
+
     Returns:
         A list of (interval, overlapped_intervals) tuples
         where `interval` is the original interval given
