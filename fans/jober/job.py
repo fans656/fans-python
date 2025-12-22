@@ -11,7 +11,7 @@ from fans.fn import noop
 from fans.path import Path
 from fans.logger import get_logger
 
-from .run import Run, DummyRun, dummy_run
+from .run import Run, DummyRun, dummy_run, FINISHED_STATUSES
 
 
 logger = get_logger(__name__)
@@ -33,6 +33,7 @@ class Job:
             capture: str|tuple[str,str] = 'default',
             on_event=noop,
             root_work_dir: Path = None,
+            **__,
     ):
         self.target = target
         self.id = id or name or uuid.uuid4().hex
@@ -74,6 +75,7 @@ class Job:
             'type': self.target.type,
             'extra': self.extra,
             'target': self.target.as_dict(),
+            'status': self.status,
         }
 
     @property
@@ -145,9 +147,16 @@ class Job:
 
         return run
     
-    def wait(self, interval=0.01):
-        while self.last_run.status in ('init', 'running'):
-            time.sleep(interval)
+    def wait(self, interval=0.01, until: str|list[str] = None):
+        if until:
+            if isinstance(until, str):
+                until = [until]
+            while self.last_run.status not in until:
+                time.sleep(interval)
+        else:
+            # wait until not running
+            while self.last_run.status not in FINISHED_STATUSES:
+                time.sleep(interval)
     
     @property
     def _apscheduler_kwargs(self):

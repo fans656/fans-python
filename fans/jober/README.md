@@ -3,14 +3,14 @@ Intro
 
 `fans.jober` is for managing executables as jobs.
 
-You simply create a `Jober` instance and run job in it:
+Sample usage:
 
     from fans.jober import Jober
 
-    Jober(capture=False).run_job('date').wait()
+    Jober().run_job('touch ~/t.txt').wait()
 
 or run a callable periodically:
-    
+
     import time
     
     def func():
@@ -24,6 +24,15 @@ or run a command daily (cron like):
 
     jober = Jober()
     jober.add_job('rsync ~/enos/ /mnt/d/backup/enos/', when='0 22 * * *')
+
+Expose HTTP API:
+
+    from fastapi import FastAPI
+
+    from fasn.jober.router import router as jober_router
+    
+    app = FastAPI()
+    app.include_router(jober_router, prefix='/api/jober')
 
 Executables
 ================================================================================

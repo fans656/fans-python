@@ -13,19 +13,19 @@ from async_asgi_testclient import TestClient as AsyncTestClient
 import pytest
 import pytest_asyncio
 
-from fans.jober.app import root_app
+from fans.jober.app import app
 from fans.jober.jober import Jober
 
 
 @pytest.fixture
 def client():
-    with TestClient(root_app) as client:
+    with TestClient(app) as client:
         yield client
 
 
 @pytest_asyncio.fixture
 async def async_client() -> AsyncTestClient:
-    async with AsyncTestClient(root_app) as client:
+    async with AsyncTestClient(app) as client:
         yield client
 
 
@@ -59,6 +59,7 @@ class Test_list_jobs:
         assert len(jobs) == 2
         for job in jobs:
             assert 'id' in job
+            assert 'status' in job
 
 
 class Test_get_job:
@@ -94,15 +95,15 @@ class Test_list_runs:
             assert 'end_time' in run
 
 
-class Test_get_jober:
+class Test_info:
 
-    def test_get_jober(self, client, tmp_path):
+    def test_info(self, client, tmp_path):
         conf_path = tmp_path / 'conf.yaml'
         with conf_path.open('w') as f:
             yaml.dump({}, f)
 
-        with use_jober(**{'conf_path': conf_path}):
-            data = client.get('/api/get-jober').json()
+        with use_jober(conf_path=conf_path):
+            data = client.get('/api/info').json()
             
             # can get conf path
             assert data['conf_path'] == str(conf_path)
@@ -263,3 +264,23 @@ class Test_logs_follow:
             assert (await anext(events))['line'] == '5\n'
 
             controller.set()
+
+
+class Test_ui_related:
+    
+    def test_running_status(self, jober, client):
+        event = threading.Event()
+
+        def func():
+            event.wait()
+
+        job = jober.add_job(func)
+        assert client.get('/api/jobs').json()['data'][0]['status'] == 'init'
+
+        jober.run_job(job)
+        job.wait(until='running')
+        assert client.get('/api/jobs').json()['data'][0]['status'] == 'running'
+        
+        event.set()
+        job.wait()
+        assert client.get('/api/jobs').json()['data'][0]['status'] == 'done'

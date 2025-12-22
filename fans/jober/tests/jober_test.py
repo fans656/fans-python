@@ -39,13 +39,6 @@ class Test_load_jobs_from_conf:
         assert job.output == 'hello\nhello\n'
 
 
-class Test_make_job:
-
-    def test_job_has_id(self, jober):
-        job = jober.make_job(lambda: None)
-        assert job.id
-
-
 class Test_get_job:
 
     def test_not_found(self, jober):

@@ -12,12 +12,18 @@ from fans.jober.tests.conftest import parametrized
 
 class Test_api:
     
+    def test_start_stop(self):
+        jober = Jober()
+        jober.start()
+        jober.stop()
+    
     def test_run_job(self, jober, mocker):
         func = mocker.Mock()
 
         name = 'paste xxx'
         extra = {'data': ''}
         kwargs = {'foo': 3, 'bar': 5}
+
         job = jober.run_job(
             func,
             kwargs=kwargs,
@@ -29,5 +35,5 @@ class Test_api:
         # run_job return Job instance
         assert isinstance(job, Job)
         
-        # can pass kwargs
+        # kwargs passed to func
         func.assert_called_with(**kwargs)

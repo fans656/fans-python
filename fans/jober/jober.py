@@ -100,7 +100,7 @@ class Jober:
         for job in self._id_to_job.values():
             yield job
 
-    def run_job(self, *_args, **_kwargs) -> Job:
+    def run_job(self, target: str|Callable|Job, **options) -> Job:
         """
         Run new job:
         
@@ -111,72 +111,50 @@ class Jober:
             job = jober.get_job('<job_id>')
             jober.run_job(job)
         """
-        if _args and isinstance(_args[0], Job):
-            job = _args[0]
-            run_args = _kwargs.get('args')
-            run_kwargs = _kwargs.get('kwargs')
-        else:
-            _kwargs.setdefault('volatile', True)
-            job = self.add_job(*_args, **_kwargs)
-            run_args = None
-            run_kwargs = None
+        options.setdefault('args', ())
+        options.setdefault('kwargs', {})
 
-        run = job.new_run(args=run_args, kwargs=run_kwargs)
+        if isinstance(target, Job):
+            job = target
+        else:
+            options.setdefault('volatile', True)
+            job = self.add_job(target, **options)
+
+        run = job.new_run(args=options['args'], kwargs=options['kwargs'])
         run.native_id = self._sched.run_singleshot(run, **job._apscheduler_kwargs)
 
         return job
 
-    def add_job(
-            self,
-            *args,
-            when: int|float|str = None,
-            initial_run: bool = True,
-            **kwargs,
-    ) -> Job:
-        """Make a job and add to jober."""
-        job = self.make_job(*args, **kwargs)
+    def add_job(self, target: str|Callable, **options) -> Job:
+        """
+        Make a job and add to jober, optionally schedule it also.
+        """
+        # when: int|float|str - specify job schedule
+        #   interval schedule if a number, run every `when` seconds
+        #   cron schedule if a str
+        options.setdefault('when', None)
+
+        # initial_run: bool - whether run immediately for interval schedule
+        options.setdefault('initial_run', True)
+
+        options.setdefault('max_recent_runs', self.conf.max_recent_runs)
+        options.setdefault('on_event', lambda event: self._events_queue.put(event))
+        options.setdefault('root_work_dir', self.work_dir)
+        options.setdefault('capture', self.conf.capture)
+        options.setdefault('service', False)
+
+        job = Job(Target.make(target, **options), **options)
 
         self._add_job(job)
         
-        if when is not None:
+        if when := options['when']:
             self._schedule_job(job, when)
         
-        if job.target.options.get('service'):
+        if options['service']:
             self._services[job.id] = thread = threading.Thread(target=_run_as_service, args=(job,), daemon=True)
             thread.start()
 
         self.start()  # ensure started
-
-        return job
-
-    def make_job(
-            self,
-            target: Union[str, Callable],
-            args: tuple = (),
-            kwargs: dict = {},
-            *,
-            cwd: str = None,
-            shell: bool = False,
-            process: bool = False,
-            service: bool = False,
-            **job_kwargs,
-    ) -> 'Job':
-        target = Target.make(
-            target,
-            args,
-            kwargs,
-            shell=shell,
-            cwd=cwd,
-            process=process,
-            service=service,
-        )
-
-        job_kwargs.setdefault('max_recent_runs', self.conf.max_recent_runs)
-        job_kwargs.setdefault('on_event', lambda event: self._events_queue.put(event))
-        job_kwargs.setdefault('root_work_dir', self.work_dir)
-        job_kwargs.setdefault('capture', self.conf.capture)
-
-        job = Job(target, **job_kwargs)
 
         return job
     

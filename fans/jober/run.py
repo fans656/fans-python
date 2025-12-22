@@ -1,3 +1,4 @@
+import enum
 import time
 import queue
 import inspect
@@ -16,6 +17,13 @@ logger = get_logger(__name__)
 
 
 class Run:
+    
+    class Status(enum.StrEnum):
+        
+        init = 'init'
+        running = 'running'
+        done = 'done'
+        error = 'error'
 
     def __init__(
         self,
@@ -40,7 +48,7 @@ class Run:
         self.kwargs = kwargs
         self.on_event = on_event
 
-        self.status = 'init'
+        self.status = Run.Status.init
         self.beg_time = None
         self.end_time = None
         self.trace = None
@@ -52,7 +60,7 @@ class Run:
     
     def __call__(self):
         try:
-            self._set_status('running')
+            self._set_status(Run.Status.running)
 
             self.target.capture = self.capture
 
@@ -65,11 +73,11 @@ class Run:
             else:
                 self.result = ret
             
-            self._set_status('done')
+            self._set_status(Run.Status.done)
 
             return ret
         except:
-            self._set_status('error')
+            self._set_status(Run.Status.error)
 
     @property
     def output(self) -> str:
@@ -94,10 +102,10 @@ class Run:
         return ret
     
     def _set_status(self, status):
-        if status == 'running':
+        if status == Run.Status.running:
             self.beg_time = time.time()
-        elif status in ('error', 'done'):
-            if status == 'error':
+        elif status in FINISHED_STATUSES:
+            if status == Run.Status.error:
                 self.trace = traceback.format_exc()
             self.end_time = time.time()
 
@@ -133,5 +141,5 @@ class _Output:
 
 dummy_run = DummyRun()
 
-RUNNING_STATUSES = {'init', 'running'}
-FINISHED_STATUSES = {'done', 'error'}
+RUNNING_STATUSES = {Run.Status.init, Run.Status.running}
+FINISHED_STATUSES = {Run.Status.done, Run.Status.error}

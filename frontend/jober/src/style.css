@@ -30,7 +30,6 @@ html, body, #root, .app {
 
 body, #root, .app {
   flex: 1;
-  background-color: #EFF5FB;
 }
 
 /* https://www.bennadel.com/blog/3391-margin-collapsing-causes-unexpected-scrollbar-with-100vh-body-in-webkit.htm */

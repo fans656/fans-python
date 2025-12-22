@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       'src': path.resolve(__dirname, './src'),
+      'fansjs': '/root/src/fansjs/src',
     },
   },
   server: {

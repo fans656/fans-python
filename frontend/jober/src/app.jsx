@@ -1,37 +1,48 @@
 import { useState, useEffect } from 'react'
 
+import { Root } from 'fansjs/ui';
+import Jober from 'fansjs/jober';
+
 import * as api from 'src/api';
 import { useInitializeGlobals } from 'src/globals';
 import { useQuery, setQuery } from 'src/utils';
 import List from 'src/comps/list';
 
 export default function App() {
-  useInitializeGlobals();
-
-  const [currentJob, set_currentJob] = useState(null);
-  const [currentRun, set_currentRun] = useState(null);
-
-  const jobs = useJobs();
-  const runs = useRuns(currentJob);
-
   return (
-    <div className="padding horz space flex-1">
-      <JobsList jobs={jobs} set_currentJob={set_currentJob}/>
-      <div className="flex-1" style={{marginLeft: '1em'}}>
-        {currentJob ? (
-          <JobDetail
-            job={currentJob}
-            run={currentRun}
-            runs={runs}
-            set_currentRun={set_currentRun}
-          />
-        ) : (
-          <div>dashboard</div>
-        )}
-      </div>
-    </div>
+    <Root>
+      <Jober/>
+    </Root>
   );
 }
+
+//export default function App() {
+//  useInitializeGlobals();
+//
+//  const [currentJob, set_currentJob] = useState(null);
+//  const [currentRun, set_currentRun] = useState(null);
+//
+//  const jobs = useJobs();
+//  const runs = useRuns(currentJob);
+//
+//  return (
+//    <div className="padding horz space flex-1">
+//      <JobsList jobs={jobs} set_currentJob={set_currentJob}/>
+//      <div className="flex-1" style={{marginLeft: '1em'}}>
+//        {currentJob ? (
+//          <JobDetail
+//            job={currentJob}
+//            run={currentRun}
+//            runs={runs}
+//            set_currentRun={set_currentRun}
+//          />
+//        ) : (
+//          <div>dashboard</div>
+//        )}
+//      </div>
+//    </div>
+//  );
+//}
 
 function JobsList({jobs, currentJob, set_currentJob}) {
   return (
@@ -111,6 +122,7 @@ function RunOutput({job, run}) {
 }
 
 function RunsList({runs=[], set_currentRun}) {
+  return null;
   return (
     <List
       domain="run"
