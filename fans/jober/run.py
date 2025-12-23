@@ -112,7 +112,8 @@ class Run:
         self.status = status
         
         self.on_event({
-            'type': status,
+            'type': 'run_status',
+            'status': status,
             'time': time.time(),
             'job_id': self.job_id,
             'run_id': self.run_id,

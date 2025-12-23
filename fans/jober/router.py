@@ -1,4 +1,5 @@
 import json
+import uuid
 import asyncio
 from collections import deque
 from typing import Optional, Any
@@ -103,10 +104,14 @@ async def logs_(
 async def events_(request: Request):
     """Subscribe to events"""
     async def gen():
-        async with Jober.get_instance().pubsub.subscribe().async_events as events:
-            while not await request.is_disconnected():
-                event = await events.get()
-                yield {'data': json.dumps(event)}
+        topic = uuid.uuid4().hex
+        jober = Jober.get_instance()
+        with jober.listen(lambda event: jober.pubsub.publish(topic, event)):
+            yield {'data': json.dumps(jober._init_events())}
+            async with jober.pubsub.subscribe(topic).async_events as events:
+                while not await request.is_disconnected():
+                    _, event = await events.get()
+                    yield {'data': json.dumps(event)}
     return EventSourceResponse(gen())
 
 

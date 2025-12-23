@@ -40,16 +40,10 @@ class Test_run:
         """Can add/remove event listener"""
         events = []
 
-        def listener(event):
-            events.append(event)
+        with jober.listen(events.append):
+            jober.run_job(mocker.Mock()).wait()
 
-        jober.add_listener(listener)
-
-        jober.run_job(mocker.Mock()).wait()
-
-        assert events
-        event_types = {event['type'] for event in events}
-        assert 'running' in event_types
-        assert 'done' in event_types
-
-        jober.remove_listener(listener)
+            assert events
+            statuses = {event['status'] for event in events if event['type'] == 'run_status'}
+            assert 'running' in statuses
+            assert 'done' in statuses

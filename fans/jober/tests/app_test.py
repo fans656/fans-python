@@ -185,7 +185,7 @@ class Test_logs_follow:
                 'follow': True,
             }, stream=True)
 
-            events = self.events(resp)
+            events = async_events(resp)
             
             assert (await anext(events))['line'] == 'foo-0\n'
             controller.set()
@@ -195,12 +195,6 @@ class Test_logs_follow:
 
             assert (await anext(events))['line'] == 'foo-2\n'
             controller.set()
-    
-    async def events(self, resp):
-        async for chunk in resp.iter_content(chunk_size=None):
-            line = chunk.decode()
-            if line.startswith('data:'):
-                yield json.loads(line[5:].strip())
     
     async def test_follow_stderr(self, async_client, tmp_path):
         with use_jober(root=tmp_path) as jober:
@@ -214,7 +208,7 @@ class Test_logs_follow:
                 'job_id': job.id,
                 'follow': True,
             }, stream=True)
-            events = self.events(resp)
+            events = async_events(resp)
             assert (await anext(events))['line'] == 'foo\n'
             
             run = job.last_run
@@ -223,7 +217,7 @@ class Test_logs_follow:
                 'follow': True,
                 'stderr': True,
             }, stream=True)
-            events = self.events(resp)
+            events = async_events(resp)
             assert (await anext(events))['line'] == 'bar\n'
     
     @pytest.mark.parametrize('capture', ['default', 'file'])
@@ -252,7 +246,7 @@ class Test_logs_follow:
                 'tail': 2,
             }, stream=True)
 
-            events = self.events(resp)
+            events = async_events(resp)
             
             assert (await anext(events))['line'] == '2\n'
             assert (await anext(events))['line'] == '3\n'
@@ -269,10 +263,7 @@ class Test_logs_follow:
 class Test_ui_related:
     
     def test_running_status(self, jober, client):
-        event = threading.Event()
-
-        def func():
-            event.wait()
+        func = self.make_func()
 
         # not running yet
         job = jober.add_job(func)
@@ -284,6 +275,53 @@ class Test_ui_related:
         assert client.get('/api/jobs').json()['data'][0]['status'] == 'running'
         
         # done
-        event.set()
+        func.go()
         job.wait()
         assert client.get('/api/jobs').json()['data'][0]['status'] == 'done'
+    
+    async def test_status_events(self, jober, async_client):
+        funcs = self.make_funcs(2)
+        
+        try:
+            job0 = jober.add_job(funcs[0])
+            job1 = jober.run_job(funcs[1]).wait(until='running')
+            
+            resp = await async_client.get('/api/events', stream=True)
+            events = async_events(resp)
+            init_event = await anext(events)
+            
+            # init event containing all job's status
+            jobs = init_event['jobs']
+            assert jobs[job0.id]['status'] == 'init'
+            assert jobs[job1.id]['status'] == 'running'
+
+            funcs[1].go()
+            job1.wait(until='done')
+
+            # can receive status change event
+            event = await anext(events)
+            assert event['type'] == 'run_status'
+            assert event['status'] == 'done'
+            assert event['job_id'] == job1.id
+        finally:
+            funcs[1].go()
+    
+    def make_funcs(self, n):
+        return [self.make_func() for _ in range(n)]
+    
+    def make_func(self):
+        event = threading.Event()
+
+        def func():
+            event.wait()
+        
+        func.go = lambda: event.set()
+        
+        return func
+    
+
+async def async_events(resp):
+    async for chunk in resp.iter_content(chunk_size=None):
+        line = chunk.decode()
+        if line.startswith('data:'):
+            yield json.loads(line[5:].strip())

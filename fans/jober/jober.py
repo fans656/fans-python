@@ -6,6 +6,7 @@ import tempfile
 import traceback
 import threading
 import functools
+import contextlib
 import multiprocessing
 from pathlib import Path
 from enum import Enum
@@ -14,6 +15,7 @@ from typing import Union, Callable, List, Iterable, Optional
 import yaml
 from fans.bunch import bunch
 from fans.logger import get_logger, Logger
+from fans.pubsub import PubSub
 
 from fans.jober.sched import Sched
 from fans.jober.target import Target
@@ -52,6 +54,7 @@ class Jober:
     def __init__(self, conf_path=None, **conf):
         self.conf = _prepare_config(conf_path, conf)
         self.started = False
+        self.pubsub = PubSub()
 
         self._id_to_job = {}
 
@@ -206,6 +209,14 @@ class Jober:
         listeners.discard(token)
         self._listeners = listeners
     
+    @contextlib.contextmanager
+    def listen(self, callback):
+        try:
+            self.add_listener(callback)
+            yield
+        finally:
+            self.remove_listener(callback)
+    
     @property
     def work_dir(self):
         return Path(self.conf.root).expanduser()
@@ -219,6 +230,15 @@ class Jober:
     
     def __exit__(self, *_, **__):
         self.stop()
+    
+    def _init_events(self):
+        return {
+            'jobs': {
+                job.id: {
+                    'status': job.status,
+                } for job in self.jobs
+            },
+        }
     
     def _schedule_job(self, job, when):
         if isinstance(when, (int, float)):

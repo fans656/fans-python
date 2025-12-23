@@ -166,10 +166,12 @@ class Job:
             if pred():
                 break
             time.sleep(interval)
+        
+        return self
     
     def _on_run_event(self, event: dict):
         self.on_event(event)
-        if event['type'] in FINISHED_STATUSES:
+        if event['type'] == 'run_status' and event['status'] in FINISHED_STATUSES:
             self.runs_count += 1
     
     @property
