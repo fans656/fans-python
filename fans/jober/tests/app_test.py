@@ -274,13 +274,16 @@ class Test_ui_related:
         def func():
             event.wait()
 
+        # not running yet
         job = jober.add_job(func)
         assert client.get('/api/jobs').json()['data'][0]['status'] == 'init'
 
+        # running
         jober.run_job(job)
         job.wait(until='running')
         assert client.get('/api/jobs').json()['data'][0]['status'] == 'running'
         
+        # done
         event.set()
         job.wait()
         assert client.get('/api/jobs').json()['data'][0]['status'] == 'done'

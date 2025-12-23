@@ -5,7 +5,7 @@ import shutil
 import asyncio
 import datetime
 from collections import deque
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Callable
 
 from fans.fn import noop
 from fans.path import Path
@@ -46,6 +46,8 @@ class Job:
         self.volatile = volatile
         self.capture = capture
         self.on_event = on_event
+        
+        self.runs_count = 0
 
         if root_work_dir:
             self._work_dir = Path(root_work_dir / self.id)
@@ -76,6 +78,7 @@ class Job:
             'extra': self.extra,
             'target': self.target.as_dict(),
             'status': self.status,
+            'runs_count': self.runs_count,
         }
 
     @property
@@ -137,7 +140,7 @@ class Job:
             kwargs=kwargs,
             stdout=stdout,
             stderr=stderr,
-            on_event=self.on_event,
+            on_event=self._on_run_event,
         )
 
         self._id_to_run[run_id] = run
@@ -147,16 +150,27 @@ class Job:
 
         return run
     
-    def wait(self, interval=0.01, until: str|list[str] = None):
-        if until:
-            if isinstance(until, str):
-                until = [until]
-            while self.last_run.status not in until:
-                time.sleep(interval)
+    def wait(self, interval=0.01, until: str|list[str]|Callable[[], bool] = None):
+        if until is None:
+            pred = lambda: self.last_run.status in FINISHED_STATUSES
+        elif isinstance(until, str):
+            pred = lambda: self.last_run.status == until
+        elif isinstance(until, list):
+            pred = lambda: self.last_run.status in until
+        elif callable(until):
+            pred = until
         else:
-            # wait until not running
-            while self.last_run.status not in FINISHED_STATUSES:
-                time.sleep(interval)
+            raise TypeError(f'invalid until {until}')
+
+        while True:
+            if pred():
+                break
+            time.sleep(interval)
+    
+    def _on_run_event(self, event: dict):
+        self.on_event(event)
+        if event['type'] in FINISHED_STATUSES:
+            self.runs_count += 1
     
     @property
     def _apscheduler_kwargs(self):

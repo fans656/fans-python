@@ -19,3 +19,13 @@ def test_id_and_name():
     job = Job(id='foo', name='bar')
     assert job.id == 'foo'
     assert job.name == 'bar'
+
+
+def test_runs_count():
+    job = Job()
+
+    job()
+    assert job.runs_count == 1
+
+    job()
+    assert job.runs_count == 2

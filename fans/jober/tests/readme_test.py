@@ -121,8 +121,8 @@ def test_cwd(jober, tmp_path):
 def test_interval():
     jober = Jober(max_recent_runs=100)
     job = jober.add_job('date', when=0.01)
-    time.sleep(0.1)
+    job.wait(until=lambda: job.runs_count >= 10)
     jober.stop()
-    assert len(job.runs) >= 9
+    assert len(job.runs) >= 10
     for run in job.runs:
         assert run.output
