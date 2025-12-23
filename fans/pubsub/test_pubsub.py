@@ -117,15 +117,19 @@ class Test_multi_threads:
         """
         callback = mocker.Mock()
         _subscribed = threading.Event()
+
         with threaded:
+
             @threaded
             def _():
                 pubsub.subscribe('', callback)
                 _subscribed.set()
+
             @threaded
-            def i():
+            def _():
                 _subscribed.wait()
                 pubsub.publish('', 42)
+
         callback.assert_called_once_with('', 42)
 
 

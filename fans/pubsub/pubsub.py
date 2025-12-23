@@ -28,7 +28,7 @@ Collect events in SSE response generator
     @app.get('/api/events')
     async def events(request: Request):
         async def gen():
-            async with pubsub.subscribe.async_events as events:
+            async with pubsub.subscribe().async_events as events:
                 while not await request.is_disconnected():
                     try:
                         yield await events.get(timeout = 0.02)
